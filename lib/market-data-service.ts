@@ -1,0 +1,348 @@
+import { prisma } from '@/lib/db'
+import { marketDataCache } from '@/lib/redis'
+
+interface MarketDataPoint {
+  date: string
+  open: number | null
+  high: number | null
+  low: number | null
+  close: number | null
+  volume: number | null
+  adjClose: number | null
+  dividend: number
+  splitRatio: number
+}
+
+interface CurrentPriceData {
+  symbol: string
+  price: number
+  change: number
+  changePercent: number
+  timestamp: string
+  source: string
+}
+
+export class MarketDataService {
+  private fmpApiKey: string
+  private fmpBaseUrl = 'https://financialmodelingprep.com/api/v3'
+
+  constructor() {
+    this.fmpApiKey = process.env.FMP_API_KEY || 'Ejh2emZcJzogsHafpis8ogaXO7nPZDPI'
+  }
+
+  async getCurrentPrice(symbol: string): Promise<CurrentPriceData> {
+    // Check cache first
+    const cached = await marketDataCache.getCurrentPrice(symbol)
+    if (cached) {
+      return cached
+    }
+
+    try {
+      // Try FMP first
+      const fmpData = await this.getFMPCurrentPrice(symbol)
+      if (fmpData) {
+        await marketDataCache.setCurrentPrice(symbol, fmpData)
+        return fmpData
+      }
+
+      // Fallback to Yahoo Finance using external service
+      const yahooData = await this.getYahooCurrentPrice(symbol)
+      if (yahooData) {
+        await marketDataCache.setCurrentPrice(symbol, yahooData)
+        return yahooData
+      }
+
+      throw new Error(`No price data available for ${symbol}`)
+    } catch (error) {
+      console.error(`Failed to get current price for ${symbol}:`, error)
+      throw error
+    }
+  }
+
+  async getHistoricalData(
+    symbol: string,
+    period: string = '1y',
+    interval: string = '1d'
+  ): Promise<MarketDataPoint[]> {
+    const cacheKey = `${symbol}:${period}:${interval}`
+    
+    // Check cache first
+    const cached = await marketDataCache.getHistoricalData(symbol, cacheKey)
+    if (cached) {
+      return cached
+    }
+
+    try {
+      let data: MarketDataPoint[] = []
+
+      // Try to get from FMP
+      if (interval === '1d') {
+        data = await this.getFMPHistoricalData(symbol, this.getPeriodDates(period))
+      }
+
+      // Fallback to database
+      if (data.length === 0) {
+        data = await this.getHistoricalDataFromDB(symbol, period)
+      }
+
+      // Fallback to Yahoo Finance
+      if (data.length === 0) {
+        data = await this.getYahooHistoricalData(symbol, period, interval)
+      }
+
+      if (data.length > 0) {
+        await marketDataCache.setHistoricalData(symbol, cacheKey, data)
+      }
+
+      return data
+    } catch (error) {
+      console.error(`Failed to get historical data for ${symbol}:`, error)
+      throw error
+    }
+  }
+
+  async getBulkHistoricalData(
+    symbols: string[],
+    period: string = '1y',
+    interval: string = '1d'
+  ): Promise<Record<string, MarketDataPoint[]>> {
+    const results: Record<string, MarketDataPoint[]> = {}
+    
+    // Process symbols in batches to avoid rate limits
+    const batchSize = 5
+    for (let i = 0; i < symbols.length; i += batchSize) {
+      const batch = symbols.slice(i, i + batchSize)
+      const batchPromises = batch.map(async (symbol) => {
+        try {
+          const data = await this.getHistoricalData(symbol, period, interval)
+          return { symbol, data }
+        } catch (error) {
+          console.error(`Failed to get data for ${symbol}:`, error)
+          return { symbol, data: [] }
+        }
+      })
+
+      const batchResults = await Promise.all(batchPromises)
+      batchResults.forEach(({ symbol, data }) => {
+        results[symbol] = data
+      })
+
+      // Add delay between batches to respect rate limits
+      if (i + batchSize < symbols.length) {
+        await new Promise(resolve => setTimeout(resolve, 1000))
+      }
+    }
+
+    return results
+  }
+
+  private async getFMPCurrentPrice(symbol: string): Promise<CurrentPriceData | null> {
+    try {
+      const url = `${this.fmpBaseUrl}/quote/${symbol}?apikey=${this.fmpApiKey}`
+      const response = await fetch(url, { 
+        next: { revalidate: 300 } // Cache for 5 minutes
+      })
+      
+      if (!response.ok) {
+        throw new Error(`FMP API error: ${response.status}`)
+      }
+
+      const data = await response.json()
+      if (!data || data.length === 0) {
+        return null
+      }
+
+      const quote = data[0]
+      return {
+        symbol: quote.symbol,
+        price: quote.price || 0,
+        change: quote.change || 0,
+        changePercent: quote.changesPercentage || 0,
+        timestamp: new Date().toISOString(),
+        source: 'fmp',
+      }
+    } catch (error) {
+      console.error(`FMP current price failed for ${symbol}:`, error)
+      return null
+    }
+  }
+
+  private async getFMPHistoricalData(
+    symbol: string,
+    { from, to }: { from: string; to: string }
+  ): Promise<MarketDataPoint[]> {
+    try {
+      const url = `${this.fmpBaseUrl}/historical-price-full/${symbol}?from=${from}&to=${to}&apikey=${this.fmpApiKey}`
+      const response = await fetch(url, {
+        next: { revalidate: 3600 } // Cache for 1 hour
+      })
+
+      if (!response.ok) {
+        throw new Error(`FMP API error: ${response.status}`)
+      }
+
+      const data = await response.json()
+      if (!data?.historical) {
+        return []
+      }
+
+      return data.historical.map((item: any) => ({
+        date: item.date,
+        open: item.open,
+        high: item.high,
+        low: item.low,
+        close: item.close,
+        volume: item.volume,
+        adjClose: item.adjClose,
+        dividend: 0,
+        splitRatio: 1,
+      })).reverse() // FMP returns newest first, we want oldest first
+    } catch (error) {
+      console.error(`FMP historical data failed for ${symbol}:`, error)
+      return []
+    }
+  }
+
+  private async getHistoricalDataFromDB(
+    symbol: string,
+    period: string
+  ): Promise<MarketDataPoint[]> {
+    try {
+      const { from, to } = this.getPeriodDates(period)
+      
+      const data = await prisma.marketData.findMany({
+        where: {
+          symbol: symbol.toUpperCase(),
+          date: {
+            gte: new Date(from),
+            lte: new Date(to),
+          },
+        },
+        orderBy: { date: 'asc' },
+      })
+
+      return data.map(item => ({
+        date: item.date.toISOString().split('T')[0],
+        open: item.open ? Number(item.open) : null,
+        high: item.high ? Number(item.high) : null,
+        low: item.low ? Number(item.low) : null,
+        close: item.close ? Number(item.close) : null,
+        volume: item.volume ? Number(item.volume) : null,
+        adjClose: item.adjClose ? Number(item.adjClose) : null,
+        dividend: Number(item.dividend),
+        splitRatio: Number(item.splitRatio),
+      }))
+    } catch (error) {
+      console.error(`Database query failed for ${symbol}:`, error)
+      return []
+    }
+  }
+
+  private async getYahooCurrentPrice(symbol: string): Promise<CurrentPriceData | null> {
+    try {
+      // This would typically use a Yahoo Finance API or scraping service
+      // For now, return null to indicate fallback not available
+      return null
+    } catch (error) {
+      console.error(`Yahoo current price failed for ${symbol}:`, error)
+      return null
+    }
+  }
+
+  private async getYahooHistoricalData(
+    symbol: string,
+    period: string,
+    interval: string
+  ): Promise<MarketDataPoint[]> {
+    try {
+      // This would typically use a Yahoo Finance API or scraping service
+      // For now, return empty array to indicate fallback not available
+      return []
+    } catch (error) {
+      console.error(`Yahoo historical data failed for ${symbol}:`, error)
+      return []
+    }
+  }
+
+  private getPeriodDates(period: string): { from: string; to: string } {
+    const to = new Date()
+    const from = new Date()
+
+    switch (period) {
+      case '1d':
+        from.setDate(from.getDate() - 1)
+        break
+      case '5d':
+        from.setDate(from.getDate() - 5)
+        break
+      case '1mo':
+        from.setMonth(from.getMonth() - 1)
+        break
+      case '3mo':
+        from.setMonth(from.getMonth() - 3)
+        break
+      case '6mo':
+        from.setMonth(from.getMonth() - 6)
+        break
+      case '1y':
+        from.setFullYear(from.getFullYear() - 1)
+        break
+      case '2y':
+        from.setFullYear(from.getFullYear() - 2)
+        break
+      case '5y':
+        from.setFullYear(from.getFullYear() - 5)
+        break
+      case '10y':
+        from.setFullYear(from.getFullYear() - 10)
+        break
+      case 'ytd':
+        from.setMonth(0, 1) // January 1st of current year
+        break
+      case 'max':
+        from.setFullYear(from.getFullYear() - 20) // 20 years
+        break
+      default:
+        from.setFullYear(from.getFullYear() - 1) // Default to 1 year
+    }
+
+    return {
+      from: from.toISOString().split('T')[0],
+      to: to.toISOString().split('T')[0],
+    }
+  }
+
+  async saveMarketData(symbol: string, data: MarketDataPoint[]): Promise<void> {
+    try {
+      const records = data.map(item => ({
+        symbol: symbol.toUpperCase(),
+        date: new Date(item.date),
+        open: item.open,
+        high: item.high,
+        low: item.low,
+        close: item.close,
+        volume: item.volume ? BigInt(item.volume) : null,
+        adjClose: item.adjClose,
+        dividend: item.dividend,
+        splitRatio: item.splitRatio,
+      }))
+
+      // Use upsert to handle duplicates
+      for (const record of records) {
+        await prisma.marketData.upsert({
+          where: {
+            symbol_date: {
+              symbol: record.symbol,
+              date: record.date,
+            },
+          },
+          update: record,
+          create: record,
+        })
+      }
+    } catch (error) {
+      console.error(`Failed to save market data for ${symbol}:`, error)
+      throw error
+    }
+  }
+}

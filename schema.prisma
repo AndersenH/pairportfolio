@@ -1,0 +1,168 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                String   @id @default(uuid()) @db.Uuid
+  email             String   @unique @db.VarChar(255)
+  hashedPassword    String   @map("hashed_password") @db.VarChar(255)
+  firstName         String?  @map("first_name") @db.VarChar(100)
+  lastName          String?  @map("last_name") @db.VarChar(100)
+  subscriptionTier  String   @default("free") @map("subscription_tier") @db.VarChar(50)
+  isActive          Boolean  @default(true) @map("is_active")
+  emailVerified     Boolean  @default(false) @map("email_verified")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  // Relationships
+  portfolios Portfolio[]
+  backtests  Backtest[]
+
+  @@map("users")
+  @@index([email])
+}
+
+model Portfolio {
+  id             String   @id @default(uuid()) @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  name           String   @db.VarChar(255)
+  description    String?  @db.Text
+  isPublic       Boolean  @default(false) @map("is_public")
+  initialCapital Decimal  @default(10000) @map("initial_capital") @db.Decimal(12, 2)
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  // Relationships
+  user      User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  holdings  PortfolioHolding[]
+  backtests Backtest[]
+
+  @@map("portfolios")
+}
+
+model PortfolioHolding {
+  id          String   @id @default(uuid()) @db.Uuid
+  portfolioId String   @map("portfolio_id") @db.Uuid
+  symbol      String   @db.VarChar(20)
+  allocation  Decimal  @db.Decimal(5, 4) // 0.0000 to 1.0000
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  // Relationships
+  portfolio Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+
+  @@unique([portfolioId, symbol], name: "unique_portfolio_symbol")
+  @@map("portfolio_holdings")
+}
+
+model Strategy {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String   @db.VarChar(100)
+  type        String   @db.VarChar(50) // momentum, mean_reversion, etc.
+  description String?  @db.Text
+  parameters  Json?
+  isSystem    Boolean  @default(false) @map("is_system") // System vs user-created strategies
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  // Relationships
+  backtests Backtest[]
+
+  @@map("strategies")
+}
+
+model Backtest {
+  id                    String    @id @default(uuid()) @db.Uuid
+  userId                String    @map("user_id") @db.Uuid
+  portfolioId           String    @map("portfolio_id") @db.Uuid
+  strategyId            String    @map("strategy_id") @db.Uuid
+  name                  String?   @db.VarChar(255)
+  startDate             DateTime  @map("start_date") @db.Date
+  endDate               DateTime  @map("end_date") @db.Date
+  initialCapital        Decimal   @map("initial_capital") @db.Decimal(12, 2)
+  rebalancingFrequency  String?   @map("rebalancing_frequency") @db.VarChar(20) // daily, weekly, monthly, quarterly
+  status                String    @default("pending") @db.VarChar(20) // pending, running, completed, failed
+  progress              Int       @default(0) // 0-100
+  errorMessage          String?   @map("error_message") @db.Text
+  results               Json?
+  createdAt             DateTime  @default(now()) @map("created_at")
+  startedAt             DateTime? @map("started_at")
+  completedAt           DateTime? @map("completed_at")
+
+  // Relationships
+  user               User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  portfolio          Portfolio            @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+  strategy           Strategy             @relation(fields: [strategyId], references: [id])
+  performanceMetrics PerformanceMetrics[]
+
+  @@map("backtests")
+}
+
+model PerformanceMetrics {
+  id                   String   @id @default(uuid()) @db.Uuid
+  backtestId           String   @map("backtest_id") @db.Uuid
+  totalReturn          Decimal? @map("total_return") @db.Decimal(10, 6)
+  annualizedReturn     Decimal? @map("annualized_return") @db.Decimal(10, 6)
+  volatility           Decimal? @db.Decimal(10, 6)
+  sharpeRatio          Decimal? @map("sharpe_ratio") @db.Decimal(10, 6)
+  maxDrawdown          Decimal? @map("max_drawdown") @db.Decimal(10, 6)
+  maxDrawdownDuration  Int?     @map("max_drawdown_duration") // days
+  beta                 Decimal? @db.Decimal(10, 6)
+  alpha                Decimal? @db.Decimal(10, 6)
+  calmarRatio          Decimal? @map("calmar_ratio") @db.Decimal(10, 6)
+  sortinoRatio         Decimal? @map("sortino_ratio") @db.Decimal(10, 6)
+  var95                Decimal? @map("var_95") @db.Decimal(10, 6) // Value at Risk 95%
+  cvar95               Decimal? @map("cvar_95") @db.Decimal(10, 6) // Conditional VaR 95%
+  winRate              Decimal? @map("win_rate") @db.Decimal(5, 4)
+  profitFactor         Decimal? @map("profit_factor") @db.Decimal(10, 6)
+  createdAt            DateTime @default(now()) @map("created_at")
+
+  // Relationships
+  backtest Backtest @relation(fields: [backtestId], references: [id], onDelete: Cascade)
+
+  @@map("performance_metrics")
+}
+
+model MarketData {
+  id         String   @id @default(uuid()) @db.Uuid
+  symbol     String   @db.VarChar(20)
+  date       DateTime @db.Date
+  open       Decimal? @db.Decimal(10, 4)
+  high       Decimal? @db.Decimal(10, 4)
+  low        Decimal? @db.Decimal(10, 4)
+  close      Decimal? @db.Decimal(10, 4)
+  volume     BigInt?
+  adjClose   Decimal? @map("adj_close") @db.Decimal(10, 4)
+  dividend   Decimal  @default(0) @db.Decimal(10, 4)
+  splitRatio Decimal  @default(1) @map("split_ratio") @db.Decimal(10, 4)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@unique([symbol, date], name: "unique_symbol_date")
+  @@index([symbol, date], name: "idx_symbol_date")
+  @@index([symbol])
+  @@index([date])
+  @@map("market_data")
+}
+
+model ETFInfo {
+  id               String    @id @default(uuid()) @db.Uuid
+  symbol           String    @unique @db.VarChar(20)
+  name             String    @db.VarChar(255)
+  description      String?   @db.Text
+  expenseRatio     Decimal?  @map("expense_ratio") @db.Decimal(5, 4)
+  aum              Decimal?  @db.Decimal(15, 2) // Assets Under Management
+  inceptionDate    DateTime? @map("inception_date") @db.Date
+  category         String?   @db.VarChar(100)
+  sector           String?   @db.VarChar(100)
+  geographicFocus  String?   @map("geographic_focus") @db.VarChar(100)
+  investmentStyle  String?   @map("investment_style") @db.VarChar(100)
+  benchmark        String?   @db.VarChar(100)
+  isActive         Boolean   @default(true) @map("is_active")
+  lastUpdated      DateTime  @default(now()) @updatedAt @map("last_updated")
+
+  @@index([symbol])
+  @@map("etf_info")
+}
