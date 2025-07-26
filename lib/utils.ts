@@ -3,7 +3,7 @@ import { twMerge } from 'tailwind-merge'
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
-import { rateLimit } from '@/lib/redis'
+// Note: redis import moved to server-only files to avoid client-side issues
 import { z } from 'zod'
 import bcrypt from 'bcryptjs'
 
@@ -81,22 +81,8 @@ export async function requireAuth(request: NextRequest) {
   return session.user
 }
 
-// Rate limiting middleware
-export async function applyRateLimit(
-  request: NextRequest,
-  identifier?: string,
-  limit: number = 100,
-  windowMs: number = 60000 // 1 minute
-) {
-  const id = identifier || request.ip || 'anonymous'
-  const result = await rateLimit.check(id, limit, windowMs)
-  
-  if (!result.allowed) {
-    throw new Error('Rate limit exceeded')
-  }
-  
-  return result
-}
+// Rate limiting middleware - moved to server-only files
+// export async function applyRateLimit() { ... }
 
 // Validation middleware
 export function validateRequestBody<T>(schema: z.ZodSchema<T>) {
