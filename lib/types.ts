@@ -43,7 +43,7 @@ export interface StrategyParameters {
 export interface Strategy {
   id: string;
   name: string;
-  type: 'buy_hold' | 'momentum' | 'mean_reversion' | 'risk_parity' | 'tactical_allocation' | 'rotation';
+  type: 'buy_hold' | 'momentum' | 'relative_strength' | 'mean_reversion' | 'risk_parity' | 'tactical_allocation' | 'rotation';
   description?: string;
   parameters: StrategyParameters;
 }

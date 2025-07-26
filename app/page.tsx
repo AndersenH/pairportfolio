@@ -1,12 +1,25 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
+import { SearchDropdown } from '@/components/ui/search-dropdown'
 import Link from 'next/link'
-import { TrendingUp, BarChart3, PieChart, Search, Star, Play, Trash2, Download, Share2 } from 'lucide-react'
+import { TrendingUp, BarChart3, PieChart, Search, Star, Play, Trash2, Download, Share2, AlertCircle, Loader2, X } from 'lucide-react'
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart as RechartsPieChart, Pie, Cell, Legend } from 'recharts'
+import { PerformanceChart } from '@/components/charts/performance-chart'
+// Simple toast replacement for now
+const useToast = () => ({
+  toast: ({ title, description, variant }: { title: string; description: string; variant?: string }) => {
+    console.log(`${variant === 'destructive' ? 'ERROR' : 'INFO'}: ${title} - ${description}`)
+    // You can replace this with a proper toast implementation later
+    if (variant === 'destructive') {
+      alert(`Error: ${description}`)
+    }
+  }
+})
 
 interface PortfolioItem {
   symbol: string
@@ -22,6 +35,44 @@ interface PopularETF {
   color: string
 }
 
+interface SearchResult {
+  symbol: string
+  name: string
+  exchangeShortName: string
+  type?: string
+  currency?: string
+}
+
+interface BacktestResult {
+  id: string
+  status: 'pending' | 'running' | 'completed' | 'failed'
+  message?: string
+  finalValue?: number
+  totalReturn?: number
+  annualizedReturn?: number
+  volatility?: number
+  sharpeRatio?: number
+  maxDrawdown?: number
+  portfolioValue?: number[]
+  dates?: string[]
+  holdings?: Record<string, number[]>
+}
+
+interface BacktestError {
+  code: string
+  message: string
+  details?: any
+}
+
+interface AssetPerformanceMetrics {
+  symbol: string
+  totalReturn: number
+  annualizedReturn: number
+  volatility: number
+  sharpeRatio: number
+  maxDrawdown: number
+}
+
 const popularETFs: PopularETF[] = [
   { symbol: 'SPY', name: 'SPDR S&P 500 ETF', type: 'S&P 500', color: 'from-blue-50 to-blue-100 border-blue-200 text-blue-700' },
   { symbol: 'QQQ', name: 'Invesco QQQ Trust', type: 'NASDAQ', color: 'from-green-50 to-green-100 border-green-200 text-green-700' },
@@ -31,6 +82,151 @@ const popularETFs: PopularETF[] = [
   { symbol: 'VXUS', name: 'Vanguard Total International Stock', type: 'International', color: 'from-red-50 to-red-100 border-red-200 text-red-700' }
 ]
 
+// Color scheme for charts - indigo theme with good contrast
+const CHART_COLORS = [
+  '#6366f1', // indigo-500
+  '#8b5cf6', // violet-500
+  '#06b6d4', // cyan-500
+  '#10b981', // emerald-500
+  '#f59e0b', // amber-500
+  '#ef4444', // red-500
+  '#ec4899', // pink-500
+  '#84cc16', // lime-500
+]
+
+// Format chart data for performance line chart
+const formatPerformanceData = (portfolioValue: number[], dates: string[]) => {
+  if (!portfolioValue || !dates || portfolioValue.length !== dates.length) {
+    return []
+  }
+  
+  return portfolioValue.map((value, index) => ({
+    date: dates[index],
+    value: value / portfolioValue[0], // Normalize to show percentage returns
+    formattedDate: new Date(dates[index]).toLocaleDateString('en-US', { 
+      month: 'short', 
+      day: 'numeric', 
+      year: 'numeric' 
+    })
+  }))
+}
+
+// Format holdings data for performance chart
+const formatHoldingsData = (holdings: Record<string, number[]>, dates: string[]) => {
+  if (!holdings || !dates) {
+    return {}
+  }
+  
+  const formattedHoldings: Record<string, any[]> = {}
+  
+  Object.entries(holdings).forEach(([symbol, values]) => {
+    if (values && values.length > 0) {
+      formattedHoldings[symbol] = values.map((value, index) => ({
+        date: dates[index],
+        value: value / values[0], // Normalize to show percentage returns
+      }))
+    }
+  })
+  
+  return formattedHoldings
+}
+
+// Format allocation data for pie chart
+const formatAllocationData = (portfolioItems: PortfolioItem[]) => {
+  return portfolioItems
+    .filter(item => item.allocation > 0)
+    .map((item, index) => ({
+      symbol: item.symbol,
+      name: item.name,
+      allocation: item.allocation,
+      color: CHART_COLORS[index % CHART_COLORS.length]
+    }))
+}
+
+// Calculate performance metrics for individual assets
+const calculateAssetPerformanceMetrics = (
+  symbol: string, 
+  values: number[], 
+  dates: string[]
+): AssetPerformanceMetrics => {
+  if (!values || values.length === 0) {
+    return {
+      symbol,
+      totalReturn: 0,
+      annualizedReturn: 0,
+      volatility: 0,
+      sharpeRatio: 0,
+      maxDrawdown: 0
+    }
+  }
+
+  // Calculate total return
+  const initialValue = values[0]
+  const finalValue = values[values.length - 1]
+  const totalReturn = (finalValue - initialValue) / initialValue
+
+  // Calculate annualized return
+  const startDate = new Date(dates[0])
+  const endDate = new Date(dates[dates.length - 1])
+  const years = (endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24 * 365.25)
+  const annualizedReturn = Math.pow(1 + totalReturn, 1 / years) - 1
+
+  // Calculate daily returns for volatility and Sharpe ratio
+  const dailyReturns = []
+  for (let i = 1; i < values.length; i++) {
+    dailyReturns.push((values[i] - values[i - 1]) / values[i - 1])
+  }
+
+  // Calculate volatility (standard deviation of daily returns, annualized)
+  const meanReturn = dailyReturns.reduce((sum, ret) => sum + ret, 0) / dailyReturns.length
+  const variance = dailyReturns.reduce((sum, ret) => sum + Math.pow(ret - meanReturn, 2), 0) / dailyReturns.length
+  const volatility = Math.sqrt(variance * 252) // Annualized (252 trading days)
+
+  // Calculate Sharpe ratio (assuming 2% risk-free rate)
+  const riskFreeRate = 0.02
+  const sharpeRatio = volatility > 0 ? (annualizedReturn - riskFreeRate) / volatility : 0
+
+  // Calculate maximum drawdown
+  let maxDrawdown = 0
+  let peak = values[0]
+  for (const value of values) {
+    if (value > peak) {
+      peak = value
+    }
+    const drawdown = (peak - value) / peak
+    if (drawdown > maxDrawdown) {
+      maxDrawdown = drawdown
+    }
+  }
+
+  return {
+    symbol,
+    totalReturn,
+    annualizedReturn,
+    volatility,
+    sharpeRatio,
+    maxDrawdown
+  }
+}
+
+
+// Custom tooltip for allocation chart
+const AllocationTooltip = ({ active, payload }: any) => {
+  if (active && payload && payload.length) {
+    const data = payload[0].payload
+    return (
+      <div className="bg-white p-3 border border-gray-200 rounded-lg shadow-lg">
+        <p className="text-sm font-medium text-gray-900">{data.symbol}</p>
+        <p className="text-xs text-gray-600 mb-1">{data.name}</p>
+        <p className="text-sm text-indigo-600">
+          Allocation: <span className="font-bold">{data.allocation.toFixed(1)}%</span>
+        </p>
+      </div>
+    )
+  }
+  return null
+}
+
 export default function HomePage() {
   const [portfolioItems, setPortfolioItems] = useState<PortfolioItem[]>([
     { symbol: 'VTI', name: 'Vanguard Total Stock Market', allocation: 50 },
@@ -39,8 +235,36 @@ export default function HomePage() {
   const [portfolioName, setPortfolioName] = useState('My ETF Portfolio')
   const [initialInvestment, setInitialInvestment] = useState(10000)
   const [strategy, setStrategy] = useState('buy-hold')
-  const [searchQuery, setSearchQuery] = useState('')
+  const [strategyParameters, setStrategyParameters] = useState({
+    momentum: {
+      lookbackPeriod: 3,
+      rebalanceFrequency: 'monthly',
+      topN: 3
+    },
+    'relative-strength': {
+      lookbackPeriod: 6,
+      rebalanceFrequency: 'monthly',
+      topN: 2,
+      benchmarkSymbol: 'SPY'
+    },
+    'mean-reversion': {
+      lookbackPeriod: 1,
+      rebalanceFrequency: 'weekly',
+      zScoreThreshold: 1.5
+    },
+    'risk-parity': {
+      lookbackPeriod: 6,
+      rebalanceFrequency: 'monthly',
+      targetVolatility: 10
+    }
+  })
   const [isRunning, setIsRunning] = useState(false)
+  const [startDate, setStartDate] = useState('2019-01-01')
+  const [endDate, setEndDate] = useState('2024-01-01')
+  const [backtestResult, setBacktestResult] = useState<BacktestResult | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [showIndividualAssets, setShowIndividualAssets] = useState(false)
+  const { toast } = useToast()
 
   const addETFToPortfolio = (etf: PopularETF) => {
     const exists = portfolioItems.find(item => item.symbol === etf.symbol)
@@ -53,6 +277,31 @@ export default function HomePage() {
     }]
     setPortfolioItems(newItems)
     rebalancePortfolio(newItems)
+  }
+
+  const addSearchResultToPortfolio = (result: SearchResult) => {
+    const exists = portfolioItems.find(item => item.symbol === result.symbol)
+    if (exists) {
+      toast({
+        title: "Already Added",
+        description: `${result.symbol} is already in your portfolio.`,
+        variant: "destructive",
+      })
+      return
+    }
+
+    const newItems = [...portfolioItems, {
+      symbol: result.symbol,
+      name: result.name,
+      allocation: 0
+    }]
+    setPortfolioItems(newItems)
+    rebalancePortfolio(newItems)
+    
+    toast({
+      title: "Added to Portfolio",
+      description: `${result.symbol} (${result.name}) has been added to your portfolio.`,
+    })
   }
 
   const removeFromPortfolio = (symbol: string) => {
@@ -77,12 +326,152 @@ export default function HomePage() {
     ))
   }
 
-  const handleRunBacktest = () => {
+  const handleRunBacktest = async () => {
+    if (portfolioItems.length === 0) {
+      toast({
+        title: "No Holdings",
+        description: "Please add at least one ETF to your portfolio.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    if (Math.abs(totalAllocation - 100) > 0.1) {
+      toast({
+        title: "Invalid Allocation",
+        description: "Portfolio allocation must equal 100%.",
+        variant: "destructive",
+      })
+      return
+    }
+
     setIsRunning(true)
-    setTimeout(() => setIsRunning(false), 3000)
+    setError(null)
+    setBacktestResult(null)
+
+    try {
+      const backtestData = {
+        name: portfolioName,
+        holdings: portfolioItems.map(item => ({
+          symbol: item.symbol,
+          allocation: item.allocation / 100, // Convert percentage to decimal
+        })),
+        startDate,
+        endDate,
+        initialCapital: initialInvestment,
+        strategy,
+        strategyParameters: strategy !== 'buy-hold' ? strategyParameters[strategy as keyof typeof strategyParameters] : undefined,
+      }
+
+      console.log('Attempting backtest with data:', backtestData)
+
+      // Try demo-backtest first (with real market data), then fall back to simple-backtest
+      let response = await fetch('/api/demo-backtest', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(backtestData),
+      })
+
+      // If demo-backtest fails, try simple-backtest as fallback
+      if (!response.ok) {
+        console.log('Demo backtest failed, trying simple backtest fallback')
+        response = await fetch('/api/simple-backtest', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(backtestData),
+        })
+      }
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error?.message || 'Failed to run backtest')
+      }
+
+      const result = await response.json()
+      const backtest = result.data
+
+      console.log('Backtest result received:', {
+        id: backtest.id,
+        status: backtest.status,
+        portfolioValueLength: backtest.portfolioValue?.length,
+        totalReturn: backtest.performanceMetrics?.totalReturn
+      })
+
+      // Set results immediately
+      setBacktestResult({
+        id: backtest.id,
+        status: backtest.status,
+        finalValue: backtest.performanceMetrics.totalReturn 
+          ? initialInvestment * (1 + backtest.performanceMetrics.totalReturn)
+          : undefined,
+        totalReturn: backtest.performanceMetrics.totalReturn,
+        annualizedReturn: backtest.performanceMetrics.annualizedReturn,
+        volatility: backtest.performanceMetrics.volatility,
+        sharpeRatio: backtest.performanceMetrics.sharpeRatio,
+        maxDrawdown: backtest.performanceMetrics.maxDrawdown,
+        portfolioValue: backtest.portfolioValue,
+        dates: backtest.dates,
+        holdings: backtest.holdings,
+      })
+
+      toast({
+        title: "Backtest Completed",
+        description: "Your backtest results are now available.",
+      })
+
+    } catch (error) {
+      console.error('Backtest error:', error)
+      setError(error instanceof Error ? error.message : 'Unknown error occurred')
+      toast({
+        title: "Backtest Failed",
+        description: error instanceof Error ? error.message : 'Unknown error occurred',
+        variant: "destructive",
+      })
+    } finally {
+      setIsRunning(false)
+    }
   }
 
   const totalAllocation = portfolioItems.reduce((sum, item) => sum + item.allocation, 0)
+  
+  // Computed chart data
+  const performanceData = backtestResult && backtestResult.portfolioValue && backtestResult.dates 
+    ? formatPerformanceData(backtestResult.portfolioValue, backtestResult.dates)
+    : []
+  
+  const holdingsData = backtestResult && backtestResult.holdings && backtestResult.dates
+    ? formatHoldingsData(backtestResult.holdings, backtestResult.dates)
+    : {}
+  
+  const allocationData = formatAllocationData(portfolioItems)
+
+  // Calculate asset performance metrics
+  const assetPerformanceMetrics: AssetPerformanceMetrics[] = useMemo(() => {
+    if (!backtestResult?.holdings || !backtestResult?.dates) {
+      return []
+    }
+
+    return portfolioItems
+      .filter(item => item.allocation > 0)
+      .map(item => {
+        const holdingValues = backtestResult.holdings![item.symbol]
+        if (!holdingValues) {
+          return {
+            symbol: item.symbol,
+            totalReturn: 0,
+            annualizedReturn: 0,
+            volatility: 0,
+            sharpeRatio: 0,
+            maxDrawdown: 0
+          }
+        }
+        return calculateAssetPerformanceMetrics(item.symbol, holdingValues, backtestResult.dates!)
+      })
+  }, [backtestResult, portfolioItems])
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -142,9 +531,17 @@ export default function HomePage() {
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Date Range</label>
                   <div className="flex space-x-2">
-                    <Input type="date" defaultValue="2019-01-01" />
+                    <Input 
+                      type="date" 
+                      value={startDate}
+                      onChange={(e) => setStartDate(e.target.value)}
+                    />
                     <span className="flex items-center text-sm text-gray-500">to</span>
-                    <Input type="date" defaultValue="2024-01-01" />
+                    <Input 
+                      type="date" 
+                      value={endDate}
+                      onChange={(e) => setEndDate(e.target.value)}
+                    />
                   </div>
                 </div>
 
@@ -161,8 +558,318 @@ export default function HomePage() {
                   >
                     <option value="buy-hold">Buy & Hold</option>
                     <option value="momentum">Momentum</option>
+                    <option value="relative-strength">Relative Strength</option>
+                    <option value="mean-reversion">Mean Reversion</option>
+                    <option value="risk-parity">Risk Parity</option>
                   </select>
                 </div>
+
+                {/* Strategy Parameters */}
+                {strategy !== 'buy-hold' && (
+                  <div className="p-4 bg-gray-50 rounded-lg border-2 border-gray-200">
+                    <label className="block text-sm font-medium text-gray-700 mb-3 flex items-center gap-2">
+                      <TrendingUp className="w-4 h-4" />
+                      Strategy Parameters
+                    </label>
+                    
+                    {strategy === 'momentum' && (
+                      <div className="space-y-4">
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">
+                            Lookback Period (months)
+                          </label>
+                          <input
+                            type="range"
+                            min="1"
+                            max="12"
+                            value={strategyParameters.momentum.lookbackPeriod}
+                            onChange={(e) => setStrategyParameters(prev => ({
+                              ...prev,
+                              momentum: { ...prev.momentum, lookbackPeriod: parseInt(e.target.value) }
+                            }))}
+                            className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                          />
+                          <div className="flex justify-between text-xs text-gray-500 mt-1">
+                            <span>1</span>
+                            <span className="font-medium text-indigo-600">
+                              {strategyParameters.momentum.lookbackPeriod} months
+                            </span>
+                            <span>12</span>
+                          </div>
+                        </div>
+                        
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">
+                            Rebalance Frequency
+                          </label>
+                          <select
+                            value={strategyParameters.momentum.rebalanceFrequency}
+                            onChange={(e) => setStrategyParameters(prev => ({
+                              ...prev,
+                              momentum: { ...prev.momentum, rebalanceFrequency: e.target.value as 'weekly' | 'monthly' | 'quarterly' }
+                            }))}
+                            className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                          >
+                            <option value="weekly">Weekly</option>
+                            <option value="monthly">Monthly</option>
+                            <option value="quarterly">Quarterly</option>
+                          </select>
+                        </div>
+                        
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">
+                            Top N Holdings
+                          </label>
+                          <input
+                            type="range"
+                            min="1"
+                            max="10"
+                            value={strategyParameters.momentum.topN}
+                            onChange={(e) => setStrategyParameters(prev => ({
+                              ...prev,
+                              momentum: { ...prev.momentum, topN: parseInt(e.target.value) }
+                            }))}
+                            className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                          />
+                          <div className="flex justify-between text-xs text-gray-500 mt-1">
+                            <span>1</span>
+                            <span className="font-medium text-indigo-600">
+                              {strategyParameters.momentum.topN} assets
+                            </span>
+                            <span>10</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {strategy === 'relative-strength' && (
+                      <div className="space-y-4">
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">
+                            Lookback Period (months)
+                          </label>
+                          <input
+                            type="range"
+                            min="1"
+                            max="12"
+                            value={strategyParameters['relative-strength'].lookbackPeriod}
+                            onChange={(e) => setStrategyParameters(prev => ({
+                              ...prev,
+                              'relative-strength': { ...prev['relative-strength'], lookbackPeriod: parseInt(e.target.value) }
+                            }))}
+                            className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                          />
+                          <div className="flex justify-between text-xs text-gray-500 mt-1">
+                            <span>1</span>
+                            <span className="font-medium text-indigo-600">
+                              {strategyParameters['relative-strength'].lookbackPeriod} months
+                            </span>
+                            <span>12</span>
+                          </div>
+                        </div>
+                        
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">
+                            Rebalance Frequency
+                          </label>
+                          <select
+                            value={strategyParameters['relative-strength'].rebalanceFrequency}
+                            onChange={(e) => setStrategyParameters(prev => ({
+                              ...prev,
+                              'relative-strength': { ...prev['relative-strength'], rebalanceFrequency: e.target.value as 'weekly' | 'monthly' | 'quarterly' }
+                            }))}
+                            className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                          >
+                            <option value="weekly">Weekly</option>
+                            <option value="monthly">Monthly</option>
+                            <option value="quarterly">Quarterly</option>
+                          </select>
+                        </div>
+                        
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">
+                            Top N Holdings
+                          </label>
+                          <input
+                            type="range"
+                            min="1"
+                            max="5"
+                            value={strategyParameters['relative-strength'].topN}
+                            onChange={(e) => setStrategyParameters(prev => ({
+                              ...prev,
+                              'relative-strength': { ...prev['relative-strength'], topN: parseInt(e.target.value) }
+                            }))}
+                            className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                          />
+                          <div className="flex justify-between text-xs text-gray-500 mt-1">
+                            <span>1</span>
+                            <span className="font-medium text-indigo-600">
+                              {strategyParameters['relative-strength'].topN} assets
+                            </span>
+                            <span>5</span>
+                          </div>
+                        </div>
+                        
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">
+                            Benchmark Symbol
+                          </label>
+                          <Input
+                            type="text"
+                            value={strategyParameters['relative-strength'].benchmarkSymbol}
+                            onChange={(e) => setStrategyParameters(prev => ({
+                              ...prev,
+                              'relative-strength': { ...prev['relative-strength'], benchmarkSymbol: e.target.value.toUpperCase() }
+                            }))}
+                            placeholder="SPY"
+                            className="text-sm"
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {strategy === 'mean-reversion' && (
+                      <div className="space-y-4">
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">
+                            Lookback Period (months)
+                          </label>
+                          <input
+                            type="range"
+                            min="1"
+                            max="6"
+                            value={strategyParameters['mean-reversion'].lookbackPeriod}
+                            onChange={(e) => setStrategyParameters(prev => ({
+                              ...prev,
+                              'mean-reversion': { ...prev['mean-reversion'], lookbackPeriod: parseInt(e.target.value) }
+                            }))}
+                            className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                          />
+                          <div className="flex justify-between text-xs text-gray-500 mt-1">
+                            <span>1</span>
+                            <span className="font-medium text-indigo-600">
+                              {strategyParameters['mean-reversion'].lookbackPeriod} months
+                            </span>
+                            <span>6</span>
+                          </div>
+                        </div>
+                        
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">
+                            Rebalance Frequency
+                          </label>
+                          <select
+                            value={strategyParameters['mean-reversion'].rebalanceFrequency}
+                            onChange={(e) => setStrategyParameters(prev => ({
+                              ...prev,
+                              'mean-reversion': { ...prev['mean-reversion'], rebalanceFrequency: e.target.value as 'weekly' | 'monthly' | 'quarterly' }
+                            }))}
+                            className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                          >
+                            <option value="weekly">Weekly</option>
+                            <option value="monthly">Monthly</option>
+                            <option value="quarterly">Quarterly</option>
+                          </select>
+                        </div>
+                        
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">
+                            Z-Score Threshold
+                          </label>
+                          <input
+                            type="range"
+                            min="0.5"
+                            max="3.0"
+                            step="0.1"
+                            value={strategyParameters['mean-reversion'].zScoreThreshold}
+                            onChange={(e) => setStrategyParameters(prev => ({
+                              ...prev,
+                              'mean-reversion': { ...prev['mean-reversion'], zScoreThreshold: parseFloat(e.target.value) }
+                            }))}
+                            className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                          />
+                          <div className="flex justify-between text-xs text-gray-500 mt-1">
+                            <span>0.5</span>
+                            <span className="font-medium text-indigo-600">
+                              {strategyParameters['mean-reversion'].zScoreThreshold.toFixed(1)}σ
+                            </span>
+                            <span>3.0</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {strategy === 'risk-parity' && (
+                      <div className="space-y-4">
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">
+                            Lookback Period (months)
+                          </label>
+                          <input
+                            type="range"
+                            min="3"
+                            max="12"
+                            value={strategyParameters['risk-parity'].lookbackPeriod}
+                            onChange={(e) => setStrategyParameters(prev => ({
+                              ...prev,
+                              'risk-parity': { ...prev['risk-parity'], lookbackPeriod: parseInt(e.target.value) }
+                            }))}
+                            className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                          />
+                          <div className="flex justify-between text-xs text-gray-500 mt-1">
+                            <span>3</span>
+                            <span className="font-medium text-indigo-600">
+                              {strategyParameters['risk-parity'].lookbackPeriod} months
+                            </span>
+                            <span>12</span>
+                          </div>
+                        </div>
+                        
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">
+                            Rebalance Frequency
+                          </label>
+                          <select
+                            value={strategyParameters['risk-parity'].rebalanceFrequency}
+                            onChange={(e) => setStrategyParameters(prev => ({
+                              ...prev,
+                              'risk-parity': { ...prev['risk-parity'], rebalanceFrequency: e.target.value as 'weekly' | 'monthly' | 'quarterly' }
+                            }))}
+                            className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                          >
+                            <option value="weekly">Weekly</option>
+                            <option value="monthly">Monthly</option>
+                            <option value="quarterly">Quarterly</option>
+                          </select>
+                        </div>
+                        
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">
+                            Target Volatility (%)
+                          </label>
+                          <input
+                            type="range"
+                            min="5"
+                            max="20"
+                            value={strategyParameters['risk-parity'].targetVolatility}
+                            onChange={(e) => setStrategyParameters(prev => ({
+                              ...prev,
+                              'risk-parity': { ...prev['risk-parity'], targetVolatility: parseInt(e.target.value) }
+                            }))}
+                            className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                          />
+                          <div className="flex justify-between text-xs text-gray-500 mt-1">
+                            <span>5%</span>
+                            <span className="font-medium text-indigo-600">
+                              {strategyParameters['risk-parity'].targetVolatility}%
+                            </span>
+                            <span>20%</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Popular ETFs */}
                 <div>
@@ -191,14 +898,11 @@ export default function HomePage() {
                     <Search className="w-4 h-4" />
                     Search Stocks & ETFs
                   </label>
-                  <Input 
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
+                  <SearchDropdown
                     placeholder="Search for stocks/ETFs (e.g., AAPL, SPY, QQQ...)"
+                    onSelect={addSearchResultToPortfolio}
+                    disabled={isRunning}
                   />
-                  <div className="text-xs text-gray-500 mt-1">
-                    Type 2+ characters to search thousands of stocks and ETFs
-                  </div>
                 </div>
 
                 {/* Portfolio Items */}
@@ -291,36 +995,100 @@ export default function HomePage() {
                 </div>
               </CardHeader>
               <CardContent className="px-0">
+                {/* Error Display */}
+                {error && (
+                  <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+                    <div className="flex items-center gap-2 text-red-700">
+                      <AlertCircle className="w-5 h-5" />
+                      <span className="font-medium">Backtest Error</span>
+                    </div>
+                    <div className="text-sm text-red-600 mt-1">{error}</div>
+                  </div>
+                )}
+
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
                   <div className="bg-indigo-50 p-4 rounded-lg text-center hover:scale-105 transition-transform">
                     <div className="text-sm text-indigo-600 font-medium">Final Value</div>
-                    <div className="text-2xl font-bold">-</div>
-                    <div className="text-sm text-gray-500">Run backtest</div>
+                    <div className="text-2xl font-bold">
+                      {backtestResult?.finalValue 
+                        ? `$${backtestResult.finalValue.toLocaleString('en-US', { maximumFractionDigits: 0 })}`
+                        : isRunning ? '...' : '-'
+                      }
+                    </div>
+                    <div className="text-sm text-gray-500">
+                      {backtestResult?.totalReturn 
+                        ? `${(backtestResult.totalReturn * 100).toFixed(1)}% total`
+                        : isRunning ? 'Computing...' : 'Run backtest'
+                      }
+                    </div>
                   </div>
                   <div className="bg-green-50 p-4 rounded-lg text-center hover:scale-105 transition-transform">
                     <div className="text-sm text-green-600 font-medium">CAGR</div>
-                    <div className="text-2xl font-bold">-</div>
+                    <div className="text-2xl font-bold">
+                      {backtestResult?.annualizedReturn 
+                        ? `${(backtestResult.annualizedReturn * 100).toFixed(1)}%`
+                        : isRunning ? '...' : '-'
+                      }
+                    </div>
                     <div className="text-sm text-gray-500">Annualized</div>
                   </div>
                   <div className="bg-blue-50 p-4 rounded-lg text-center hover:scale-105 transition-transform">
                     <div className="text-sm text-blue-600 font-medium">Max Drawdown</div>
-                    <div className="text-2xl font-bold">-</div>
+                    <div className="text-2xl font-bold">
+                      {backtestResult?.maxDrawdown 
+                        ? `${(backtestResult.maxDrawdown * 100).toFixed(1)}%`
+                        : isRunning ? '...' : '-'
+                      }
+                    </div>
                     <div className="text-sm text-gray-500">Real Data</div>
                   </div>
                   <div className="bg-purple-50 p-4 rounded-lg text-center hover:scale-105 transition-transform">
                     <div className="text-sm text-purple-600 font-medium">Sharpe Ratio</div>
-                    <div className="text-2xl font-bold">-</div>
+                    <div className="text-2xl font-bold">
+                      {backtestResult?.sharpeRatio 
+                        ? backtestResult.sharpeRatio.toFixed(2)
+                        : isRunning ? '...' : '-'
+                      }
+                    </div>
                     <div className="text-sm text-gray-500">Risk-Adjusted</div>
                   </div>
                 </div>
                 
-                <div className="h-64 bg-gray-100 rounded-lg flex items-center justify-center">
-                  <div className="text-center text-gray-500">
-                    <BarChart3 className="w-12 h-12 mx-auto mb-2 opacity-50" />
-                    <div>Performance chart will appear here</div>
-                    <div className="text-sm">Run a backtest to see results</div>
+                {/* Chart Controls */}
+                {performanceData.length > 0 && Object.keys(holdingsData).length > 0 && (
+                  <div className="mb-4 flex items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="checkbox"
+                        id="showIndividualAssets"
+                        checked={showIndividualAssets}
+                        onChange={(e) => setShowIndividualAssets(e.target.checked)}
+                        className="w-4 h-4 text-indigo-600 bg-gray-100 border-gray-300 rounded focus:ring-indigo-500 focus:ring-2"
+                      />
+                      <label 
+                        htmlFor="showIndividualAssets" 
+                        className="text-sm font-medium text-gray-700 cursor-pointer"
+                      >
+                        Show Individual Assets
+                      </label>
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      {showIndividualAssets 
+                        ? `Showing portfolio + ${Object.keys(holdingsData).length} assets`
+                        : 'Showing portfolio only'
+                      }
+                    </div>
                   </div>
-                </div>
+                )}
+                
+                <PerformanceChart
+                  data={performanceData}
+                  title="Portfolio Performance"
+                  holdings={holdingsData}
+                  showHoldings={showIndividualAssets}
+                  height={350}
+                  className="mt-2"
+                />
               </CardContent>
             </Card>
 
@@ -330,36 +1098,133 @@ export default function HomePage() {
                 <CardTitle className="text-indigo-700">Portfolio Allocation</CardTitle>
               </CardHeader>
               <CardContent className="px-0">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                  <div>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                  <div className="lg:col-span-1">
                     <h3 className="font-medium mb-4">Current Allocation</h3>
-                    <div className="h-64 bg-gray-100 rounded-lg flex items-center justify-center">
-                      <div className="text-center text-gray-500">
-                        <PieChart className="w-12 h-12 mx-auto mb-2 opacity-50" />
-                        <div>Allocation chart</div>
-                        <div className="text-sm">Add ETFs to see allocation</div>
+{allocationData.length > 0 ? (
+                      <div className="h-64">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <RechartsPieChart>
+                            <Pie
+                              data={allocationData}
+                              dataKey="allocation"
+                              nameKey="symbol"
+                              cx="50%"
+                              cy="50%"
+                              outerRadius={80}
+                              label={({ symbol, allocation }) => `${symbol}\n${allocation.toFixed(1)}%`}
+                              labelLine={false}
+                            >
+                              {allocationData.map((entry, index) => (
+                                <Cell key={`cell-${index}`} fill={entry.color} />
+                              ))}
+                            </Pie>
+                            <Tooltip content={<AllocationTooltip />} />
+                          </RechartsPieChart>
+                        </ResponsiveContainer>
                       </div>
-                    </div>
-                  </div>
-                  <div>
-                    <h3 className="font-medium mb-4">Holdings ({portfolioItems.length})</h3>
-                    <div className="space-y-2">
-                      {portfolioItems.map((item) => (
-                        <div key={item.symbol} className="flex justify-between items-center p-2 bg-gray-50 rounded">
-                          <div>
-                            <span className="font-medium">{item.symbol}</span>
-                            <div className="text-xs text-gray-500 truncate max-w-32">{item.name}</div>
+                    ) : (
+                      <div className="h-64 bg-gray-100 rounded-lg flex items-center justify-center">
+                        <div className="text-center text-gray-500">
+                          <PieChart className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                          <div className="font-medium">Portfolio Allocation Chart</div>
+                          <div className="text-sm mt-1">
+                            {portfolioItems.length === 0 
+                              ? 'Add ETFs to see interactive allocation breakdown'
+                              : 'Adjust allocations to see pie chart'
+                            }
                           </div>
-                          <Badge variant="secondary">{item.allocation.toFixed(1)}%</Badge>
                         </div>
-                      ))}
-                      {portfolioItems.length === 0 && (
-                        <div className="text-center text-gray-500 py-8">
-                          <div>No holdings yet</div>
-                          <div className="text-sm">Add ETFs from the popular selection</div>
+                      </div>
+                    )}
+                  </div>
+                  
+                  {/* Performance Metrics Table */}
+                  <div className="lg:col-span-1">
+                    <h3 className="font-medium mb-4">Asset Performance</h3>
+                    {assetPerformanceMetrics.length > 0 ? (
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full bg-white border border-gray-200 rounded-lg">
+                          <thead className="bg-gray-50">
+                            <tr>
+                              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">
+                                Symbol
+                              </th>
+                              <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider border-b">
+                                Total Return
+                              </th>
+                              <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider border-b">
+                                CAGR
+                              </th>
+                              <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider border-b">
+                                Volatility
+                              </th>
+                              <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider border-b">
+                                Sharpe
+                              </th>
+                              <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider border-b">
+                                Max DD
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-200">
+                            {assetPerformanceMetrics.map((metrics, index) => {
+                              const colorIndex = index % CHART_COLORS.length
+                              const itemColor = CHART_COLORS[colorIndex]
+                              return (
+                                <tr key={metrics.symbol} className="hover:bg-gray-50">
+                                  <td className="px-3 py-2 whitespace-nowrap">
+                                    <div className="flex items-center space-x-2">
+                                      <div 
+                                        className="w-3 h-3 rounded-full flex-shrink-0" 
+                                        style={{ backgroundColor: itemColor }}
+                                      />
+                                      <span className="text-sm font-medium text-gray-900">
+                                        {metrics.symbol}
+                                      </span>
+                                    </div>
+                                  </td>
+                                  <td className="px-3 py-2 whitespace-nowrap text-right text-sm">
+                                    <span className={`font-medium ${metrics.totalReturn >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                      {(metrics.totalReturn * 100).toFixed(1)}%
+                                    </span>
+                                  </td>
+                                  <td className="px-3 py-2 whitespace-nowrap text-right text-sm">
+                                    <span className={`font-medium ${metrics.annualizedReturn >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                      {(metrics.annualizedReturn * 100).toFixed(1)}%
+                                    </span>
+                                  </td>
+                                  <td className="px-3 py-2 whitespace-nowrap text-right text-sm text-gray-600">
+                                    {(metrics.volatility * 100).toFixed(1)}%
+                                  </td>
+                                  <td className="px-3 py-2 whitespace-nowrap text-right text-sm">
+                                    <span className={`font-medium ${metrics.sharpeRatio >= 1 ? 'text-green-600' : metrics.sharpeRatio >= 0.5 ? 'text-yellow-600' : 'text-red-600'}`}>
+                                      {metrics.sharpeRatio.toFixed(2)}
+                                    </span>
+                                  </td>
+                                  <td className="px-3 py-2 whitespace-nowrap text-right text-sm text-red-600 font-medium">
+                                    -{(metrics.maxDrawdown * 100).toFixed(1)}%
+                                  </td>
+                                </tr>
+                              )
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <div className="bg-gray-100 rounded-lg p-6 text-center">
+                        <div className="text-gray-500">
+                          <BarChart3 className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                          <div className="font-medium">Performance Metrics</div>
+                          <div className="text-sm mt-1">
+                            {portfolioItems.length === 0 
+                              ? 'Add ETFs to see performance breakdown'
+                              : 'Run backtest to see asset performance'
+                            }
+                          </div>
                         </div>
-                      )}
-                    </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               </CardContent>

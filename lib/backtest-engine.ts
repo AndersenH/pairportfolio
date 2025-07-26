@@ -217,6 +217,8 @@ export class BacktestEngine {
         return this.buyHoldWeights(prices, targetAllocations);
       case 'momentum':
         return this.momentumWeights(prices, returns, strategy.parameters, rebalancingFrequency, dates);
+      case 'relative_strength':
+        return this.relativeStrengthWeights(prices, returns, strategy.parameters, rebalancingFrequency, dates);
       case 'mean_reversion':
         return this.meanReversionWeights(prices, returns, strategy.parameters, rebalancingFrequency, dates);
       case 'risk_parity':
@@ -266,6 +268,15 @@ export class BacktestEngine {
       weights[symbol] = new Array(numPeriods).fill(0);
     });
 
+    // Special case: if only one asset, always allocate 100% to avoid jumps
+    if (symbols.length === 1) {
+      const singleSymbol = symbols[0];
+      for (let i = 0; i < numPeriods; i++) {
+        weights[singleSymbol][i] = 1.0;
+      }
+      return weights;
+    }
+
     const rebalanceDates = this.getRebalanceDates(dates, rebalancingFrequency);
 
     for (let i = 0; i < numPeriods; i++) {
@@ -280,20 +291,104 @@ export class BacktestEngine {
 
       // Only rebalance on rebalancing dates
       if (rebalanceDates.has(dates[i].getTime()) || i === lookbackPeriod) {
-        // Calculate momentum scores (cumulative returns over lookback period)
+        // Calculate momentum scores using compound returns over lookback period
         const momentumScores: { symbol: string; score: number }[] = [];
 
         symbols.forEach(symbol => {
-          let cumulativeReturn = 0;
+          let compoundReturn = 1.0;
           for (let j = i - lookbackPeriod; j < i; j++) {
-            cumulativeReturn += returns[symbol][j] || 0;
+            const dailyReturn = returns[symbol][j] || 0;
+            compoundReturn *= (1 + dailyReturn);
           }
-          momentumScores.push({ symbol, score: cumulativeReturn });
+          const totalReturn = compoundReturn - 1.0;
+          momentumScores.push({ symbol, score: totalReturn });
         });
 
         // Sort by momentum score and select top N
         momentumScores.sort((a, b) => b.score - a.score);
         const topAssets = momentumScores.slice(0, Math.min(topN, symbols.length));
+
+        // Equal weight among top assets
+        const weightPerAsset = 1.0 / topAssets.length;
+        symbols.forEach(symbol => {
+          weights[symbol][i] = topAssets.some(asset => asset.symbol === symbol) ? weightPerAsset : 0;
+        });
+      } else {
+        // Keep previous weights
+        symbols.forEach(symbol => {
+          weights[symbol][i] = weights[symbol][i - 1];
+        });
+      }
+    }
+
+    return weights;
+  }
+
+  /**
+   * Relative strength strategy weights
+   */
+  private relativeStrengthWeights(
+    prices: PriceMatrix,
+    returns: PriceMatrix,
+    parameters: any,
+    rebalancingFrequency: RebalancingFrequency,
+    dates: Date[]
+  ): WeightMatrix {
+    const lookbackPeriod = parameters.lookback_period || 126; // 6 months default
+    const topN = parameters.top_n || 2;
+    const benchmarkSymbol = parameters.benchmark_symbol || 'SPY';
+    const symbols = Object.keys(prices);
+    const numPeriods = symbols.length > 0 ? prices[symbols[0]].length : 0;
+    const weights: WeightMatrix = {};
+
+    // Initialize weights
+    symbols.forEach(symbol => {
+      weights[symbol] = new Array(numPeriods).fill(0);
+    });
+
+    // For simplicity, we'll calculate relative strength as momentum vs average performance
+    // In a full implementation, we would fetch benchmark data separately
+    const rebalanceDates = this.getRebalanceDates(dates, rebalancingFrequency);
+
+    for (let i = 0; i < numPeriods; i++) {
+      if (i < lookbackPeriod) {
+        // Equal weight initially
+        const equalWeight = 1.0 / symbols.length;
+        symbols.forEach(symbol => {
+          weights[symbol][i] = equalWeight;
+        });
+        continue;
+      }
+
+      // Only rebalance on rebalancing dates
+      if (rebalanceDates.has(dates[i].getTime()) || i === lookbackPeriod) {
+        // Calculate relative strength scores
+        const relativeStrengthScores: { symbol: string; score: number }[] = [];
+
+        // Calculate average return across all assets as proxy for benchmark
+        let avgReturn = 0;
+        symbols.forEach(symbol => {
+          let symbolReturn = 0;
+          for (let j = i - lookbackPeriod; j < i; j++) {
+            symbolReturn += returns[symbol][j] || 0;
+          }
+          avgReturn += symbolReturn;
+        });
+        avgReturn /= symbols.length;
+
+        symbols.forEach(symbol => {
+          let symbolReturn = 0;
+          for (let j = i - lookbackPeriod; j < i; j++) {
+            symbolReturn += returns[symbol][j] || 0;
+          }
+          // Relative strength is asset return minus benchmark return
+          const relativeStrength = symbolReturn - avgReturn;
+          relativeStrengthScores.push({ symbol, score: relativeStrength });
+        });
+
+        // Sort by relative strength and select top N
+        relativeStrengthScores.sort((a, b) => b.score - a.score);
+        const topAssets = relativeStrengthScores.slice(0, Math.min(topN, symbols.length));
 
         // Equal weight among top assets
         const weightPerAsset = 1.0 / topAssets.length;

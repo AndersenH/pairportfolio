@@ -81,8 +81,31 @@ export async function requireAuth(request: NextRequest) {
   return session.user
 }
 
-// Rate limiting middleware - moved to server-only files
-// export async function applyRateLimit() { ... }
+// Rate limiting middleware
+export async function applyRateLimit(
+  request: NextRequest,
+  identifier?: string,
+  limit: number = 100,
+  windowMs: number = 60000
+): Promise<{ allowed: boolean; remaining: number; resetTime: number }> {
+  try {
+    // Import redis rate limit here to avoid client-side issues
+    const { rateLimit } = await import('@/lib/redis')
+    
+    // Use IP address as identifier if not provided
+    const rateLimitId = identifier || request.ip || 'anonymous'
+    
+    return await rateLimit.check(rateLimitId, limit, windowMs)
+  } catch (error) {
+    console.error('Rate limit error:', error)
+    // Default to allowing request on error
+    return {
+      allowed: true,
+      remaining: limit - 1,
+      resetTime: Date.now() + windowMs
+    }
+  }
+}
 
 // Validation middleware
 export function validateRequestBody<T>(schema: z.ZodSchema<T>) {

@@ -31,24 +31,36 @@ export class MarketDataService {
   }
 
   async getCurrentPrice(symbol: string): Promise<CurrentPriceData> {
-    // Check cache first
-    const cached = await marketDataCache.getCurrentPrice(symbol)
-    if (cached) {
-      return cached
+    try {
+      // Check cache first
+      const cached = await marketDataCache.getCurrentPrice(symbol)
+      if (cached) {
+        return cached
+      }
+    } catch (cacheError) {
+      console.warn('Cache error, continuing without cache:', cacheError)
     }
 
     try {
       // Try FMP first
       const fmpData = await this.getFMPCurrentPrice(symbol)
       if (fmpData) {
-        await marketDataCache.setCurrentPrice(symbol, fmpData)
+        try {
+          await marketDataCache.setCurrentPrice(symbol, fmpData)
+        } catch (cacheError) {
+          console.warn('Failed to cache price data:', cacheError)
+        }
         return fmpData
       }
 
       // Fallback to Yahoo Finance using external service
       const yahooData = await this.getYahooCurrentPrice(symbol)
       if (yahooData) {
-        await marketDataCache.setCurrentPrice(symbol, yahooData)
+        try {
+          await marketDataCache.setCurrentPrice(symbol, yahooData)
+        } catch (cacheError) {
+          console.warn('Failed to cache price data:', cacheError)
+        }
         return yahooData
       }
 
@@ -66,10 +78,14 @@ export class MarketDataService {
   ): Promise<MarketDataPoint[]> {
     const cacheKey = `${symbol}:${period}:${interval}`
     
-    // Check cache first
-    const cached = await marketDataCache.getHistoricalData(symbol, cacheKey)
-    if (cached) {
-      return cached
+    try {
+      // Check cache first
+      const cached = await marketDataCache.getHistoricalData(symbol, cacheKey)
+      if (cached) {
+        return cached
+      }
+    } catch (cacheError) {
+      console.warn('Cache error, continuing without cache:', cacheError)
     }
 
     try {
@@ -82,7 +98,11 @@ export class MarketDataService {
 
       // Fallback to database
       if (data.length === 0) {
-        data = await this.getHistoricalDataFromDB(symbol, period)
+        try {
+          data = await this.getHistoricalDataFromDB(symbol, period)
+        } catch (dbError) {
+          console.warn('Database error, skipping database fallback:', dbError)
+        }
       }
 
       // Fallback to Yahoo Finance
@@ -91,7 +111,11 @@ export class MarketDataService {
       }
 
       if (data.length > 0) {
-        await marketDataCache.setHistoricalData(symbol, cacheKey, data)
+        try {
+          await marketDataCache.setHistoricalData(symbol, cacheKey, data)
+        } catch (cacheError) {
+          console.warn('Failed to cache historical data:', cacheError)
+        }
       }
 
       return data

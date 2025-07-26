@@ -42,11 +42,47 @@ export interface BacktestResult {
 }
 
 export interface StrategyConfig {
-  type: 'buy-hold' | 'momentum'
+  type: 'buy-hold' | 'momentum' | 'relative-strength' | 'mean-reversion' | 'risk-parity'
   parameters?: {
+    // Common parameters
     lookbackPeriod?: number
+    rebalanceFrequency?: 'weekly' | 'monthly' | 'quarterly'
+    
+    // Momentum strategy
     topN?: number
-    rebalanceFrequency?: 'monthly' | 'quarterly' | 'annually'
+    
+    // Relative Strength strategy
+    benchmarkSymbol?: string
+    
+    // Mean Reversion strategy
+    zScoreThreshold?: number
+    
+    // Risk Parity strategy
+    targetVolatility?: number
+  }
+}
+
+export interface StrategyParameterConfig {
+  momentum: {
+    lookbackPeriod: number // months (1-12)
+    rebalanceFrequency: 'weekly' | 'monthly' | 'quarterly'
+    topN: number // 1-10
+  }
+  'relative-strength': {
+    lookbackPeriod: number // months (1-12)
+    rebalanceFrequency: 'weekly' | 'monthly' | 'quarterly'
+    topN: number // 1-5
+    benchmarkSymbol: string
+  }
+  'mean-reversion': {
+    lookbackPeriod: number // months (1-6)
+    rebalanceFrequency: 'weekly' | 'monthly' | 'quarterly'
+    zScoreThreshold: number // 0.5-3.0
+  }
+  'risk-parity': {
+    lookbackPeriod: number // months (3-12)
+    rebalanceFrequency: 'weekly' | 'monthly' | 'quarterly'
+    targetVolatility: number // percentage (5-20)
   }
 }
 

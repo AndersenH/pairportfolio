@@ -31,7 +31,7 @@ export const holdingSchema = z.object({
 // Backtest schemas
 export const backtestSchema = z.object({
   portfolioId: z.string().uuid('Invalid portfolio ID'),
-  strategyId: z.string().uuid('Invalid strategy ID'),
+  strategyId: z.string().uuid('Invalid strategy ID').optional(),
   name: z.string().min(1, 'Backtest name is required').max(255).optional(),
   startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Start date must be in YYYY-MM-DD format'),
   endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'End date must be in YYYY-MM-DD format'),

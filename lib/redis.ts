@@ -4,14 +4,119 @@ const getRedisUrl = () => {
   if (process.env.REDIS_URL) {
     return process.env.REDIS_URL
   }
-  throw new Error('REDIS_URL is not defined')
+  return null
 }
 
-export const redis = new Redis(getRedisUrl(), {
-  retryDelayOnFailover: 100,
-  enableReadyCheck: false,
-  maxRetriesPerRequest: null,
-})
+// Create Redis instance with fallback to in-memory cache
+let redis: Redis | null = null
+let inMemoryCache: Record<string, { value: any; expires: number }> = {}
+
+try {
+  const redisUrl = getRedisUrl()
+  if (redisUrl) {
+    redis = new Redis(redisUrl, {
+      retryDelayOnFailover: 100,
+      enableReadyCheck: false,
+      maxRetriesPerRequest: 1,
+      connectTimeout: 5000,
+      commandTimeout: 5000,
+    })
+    
+    redis.on('error', (error) => {
+      console.warn('Redis connection error, falling back to in-memory cache:', error)
+      redis = null
+    })
+  } else {
+    console.warn('Redis URL not configured, using in-memory cache')
+  }
+} catch (error) {
+  console.warn('Failed to create Redis instance, using in-memory cache:', error)
+  redis = null
+}
+
+// Fallback cache implementation
+const fallbackCache = {
+  async get(key: string): Promise<string | null> {
+    const item = inMemoryCache[key]
+    if (!item) return null
+    
+    if (Date.now() > item.expires) {
+      delete inMemoryCache[key]
+      return null
+    }
+    
+    return JSON.stringify(item.value)
+  },
+  
+  async setex(key: string, ttl: number, value: string): Promise<void> {
+    inMemoryCache[key] = {
+      value: JSON.parse(value),
+      expires: Date.now() + (ttl * 1000)
+    }
+  },
+  
+  async del(...keys: string[]): Promise<void> {
+    keys.forEach(key => delete inMemoryCache[key])
+  },
+  
+  async exists(key: string): Promise<number> {
+    const item = inMemoryCache[key]
+    if (!item || Date.now() > item.expires) return 0
+    return 1
+  },
+  
+  async ttl(key: string): Promise<number> {
+    const item = inMemoryCache[key]
+    if (!item) return -2
+    const remaining = Math.floor((item.expires - Date.now()) / 1000)
+    return remaining > 0 ? remaining : -1
+  },
+  
+  async incr(key: string): Promise<number> {
+    const item = inMemoryCache[key]
+    const current = item && Date.now() <= item.expires ? (item.value || 0) : 0
+    const newValue = current + 1
+    inMemoryCache[key] = {
+      value: newValue,
+      expires: item?.expires || (Date.now() + 60000) // Default 1 minute if no expiry
+    }
+    return newValue
+  },
+  
+  async expire(key: string, ttl: number): Promise<void> {
+    const item = inMemoryCache[key]
+    if (item) {
+      item.expires = Date.now() + (ttl * 1000)
+    }
+  },
+  
+  async keys(pattern: string): Promise<string[]> {
+    // Simple pattern matching for fallback
+    const regex = new RegExp(pattern.replace('*', '.*'))
+    return Object.keys(inMemoryCache).filter(key => regex.test(key))
+  },
+  
+  async mget(...keys: string[]): Promise<(string | null)[]> {
+    return Promise.all(keys.map(key => this.get(key)))
+  },
+  
+  pipeline() {
+    const operations: (() => Promise<any>)[] = []
+    return {
+      setex: (key: string, ttl: number, value: string) => {
+        operations.push(() => fallbackCache.setex(key, ttl, value))
+        return this
+      },
+      exec: async () => {
+        return Promise.all(operations.map(op => op()))
+      }
+    }
+  }
+}
+
+// Export unified interface
+export { redis as redisInstance }
+export const redisClient = redis || fallbackCache
 
 // Cache TTL constants for financial data (in seconds)
 export const CACHE_DURATIONS = {
@@ -40,7 +145,7 @@ export const cache = {
   async get<T>(key: string, options: CacheOptions = {}): Promise<T | null> {
     try {
       const fullKey = options.namespace ? `${options.namespace}:${key}` : key
-      const value = await redis.get(fullKey)
+      const value = await redisClient.get(fullKey)
       if (!value) return null
 
       // Handle compressed data
@@ -75,7 +180,7 @@ export const cache = {
         serializedValue = `COMPRESSED:${serializedValue}`
       }
 
-      await redis.setex(fullKey, ttl, serializedValue)
+      await redisClient.setex(fullKey, ttl, serializedValue)
     } catch (error) {
       console.error('Cache set error:', error)
     }
@@ -87,7 +192,7 @@ export const cache = {
   async del(key: string, namespace?: string): Promise<void> {
     try {
       const fullKey = namespace ? `${namespace}:${key}` : key
-      await redis.del(fullKey)
+      await redisClient.del(fullKey)
     } catch (error) {
       console.error('Cache del error:', error)
     }
@@ -98,9 +203,9 @@ export const cache = {
    */
   async invalidatePattern(pattern: string): Promise<void> {
     try {
-      const keys = await redis.keys(pattern)
+      const keys = await redisClient.keys(pattern)
       if (keys.length > 0) {
-        await redis.del(...keys)
+        await redisClient.del(...keys)
       }
     } catch (error) {
       console.error('Cache invalidate pattern error:', error)
@@ -113,7 +218,7 @@ export const cache = {
   async mget<T>(keys: string[], namespace?: string): Promise<(T | null)[]> {
     try {
       const fullKeys = namespace ? keys.map(key => `${namespace}:${key}`) : keys
-      const values = await redis.mget(...fullKeys)
+      const values = await redisClient.mget(...fullKeys)
       
       return values.map(value => {
         if (!value) return null
@@ -134,7 +239,7 @@ export const cache = {
    */
   async mset(keyValuePairs: Record<string, any>, options: CacheOptions = {}): Promise<void> {
     try {
-      const pipeline = redis.pipeline()
+      const pipeline = redisClient.pipeline()
       const ttl = options.ttl || CACHE_DURATIONS.DAILY_HISTORICAL
       
       Object.entries(keyValuePairs).forEach(([key, value]) => {
@@ -154,7 +259,7 @@ export const cache = {
   async exists(key: string, namespace?: string): Promise<boolean> {
     try {
       const fullKey = namespace ? `${namespace}:${key}` : key
-      const result = await redis.exists(fullKey)
+      const result = await redisClient.exists(fullKey)
       return result === 1
     } catch (error) {
       console.error('Cache exists error:', error)
@@ -168,7 +273,7 @@ export const cache = {
   async ttl(key: string, namespace?: string): Promise<number> {
     try {
       const fullKey = namespace ? `${namespace}:${key}` : key
-      return await redis.ttl(fullKey)
+      return await redisClient.ttl(fullKey)
     } catch (error) {
       console.error('Cache TTL error:', error)
       return -1
@@ -181,7 +286,7 @@ export const cache = {
   async incr(key: string, namespace?: string): Promise<number> {
     try {
       const fullKey = namespace ? `${namespace}:${key}` : key
-      return await redis.incr(fullKey)
+      return await redisClient.incr(fullKey)
     } catch (error) {
       console.error('Cache incr error:', error)
       return 0
@@ -194,7 +299,7 @@ export const cache = {
   async expire(key: string, ttl: number, namespace?: string): Promise<void> {
     try {
       const fullKey = namespace ? `${namespace}:${key}` : key
-      await redis.expire(fullKey, ttl)
+      await redisClient.expire(fullKey, ttl)
     } catch (error) {
       console.error('Cache expire error:', error)
     }
@@ -361,6 +466,29 @@ export const cache = {
   }
 }
 
+// Market data specific cache interface for backward compatibility
+export const marketDataCache = {
+  async getCurrentPrice(symbol: string) {
+    return cache.financial.getCurrentPrice(symbol)
+  },
+  
+  async setCurrentPrice(symbol: string, data: any) {
+    return cache.financial.cacheCurrentPrice(symbol, data)
+  },
+  
+  async getHistoricalData(symbol: string, cacheKey: string) {
+    // Extract dates from cache key if needed, for now use a fallback
+    return cache.get(cacheKey, { namespace: 'historical' })
+  },
+  
+  async setHistoricalData(symbol: string, cacheKey: string, data: any) {
+    return cache.set(cacheKey, data, { 
+      ttl: CACHE_DURATIONS.DAILY_HISTORICAL, 
+      namespace: 'historical' 
+    })
+  }
+}
+
 export default cache
 
 // Rate limiting functionality for API calls
@@ -375,14 +503,14 @@ export const rateLimit = {
   ): Promise<{ allowed: boolean; remaining: number; resetTime: number }> {
     try {
       const key = `rate_limit:${identifier}`
-      const current = await redis.incr(key)
+      const current = await redisClient.incr(key)
       
       if (current === 1) {
         // First request in window, set expiration
-        await redis.expire(key, Math.ceil(windowMs / 1000))
+        await redisClient.expire(key, Math.ceil(windowMs / 1000))
       }
       
-      const ttl = await redis.ttl(key)
+      const ttl = await redisClient.ttl(key)
       const resetTime = Date.now() + (ttl * 1000)
       
       return {

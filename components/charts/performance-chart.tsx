@@ -37,9 +37,15 @@ interface TooltipProps {
 
 const CustomTooltip = ({ active, payload, label }: TooltipProps) => {
   if (active && payload && payload.length) {
+    const formattedDate = new Date(label || '').toLocaleDateString('en-US', { 
+      month: 'short', 
+      day: 'numeric', 
+      year: 'numeric' 
+    })
+    
     return (
       <div className="bg-background border rounded-lg p-3 shadow-lg">
-        <p className="text-sm font-medium mb-2">{label}</p>
+        <p className="text-sm font-medium mb-2">{formattedDate}</p>
         {payload.map((entry, index) => (
           <div key={index} className="flex items-center space-x-2 text-sm">
             <div
@@ -49,7 +55,7 @@ const CustomTooltip = ({ active, payload, label }: TooltipProps) => {
             <span className="font-medium">{entry.name}:</span>
             <span className="text-muted-foreground">
               {typeof entry.value === 'number' 
-                ? `${(entry.value * 100).toFixed(2)}%`
+                ? `${((entry.value - 1) * 100).toFixed(2)}%`
                 : entry.value
               }
             </span>
@@ -61,7 +67,7 @@ const CustomTooltip = ({ active, payload, label }: TooltipProps) => {
   return null
 }
 
-const formatYAxis = (value: number) => `${(value * 100).toFixed(0)}%`
+const formatYAxis = (value: number) => `${((value - 1) * 100).toFixed(0)}%`
 
 const formatXAxis = (value: string) => {
   const date = new Date(value)
@@ -82,9 +88,32 @@ export function PerformanceChart({
   className,
 }: PerformanceChartProps) {
   const [chartType, setChartType] = React.useState<'line' | 'area'>('line')
-  const [visibleSeries, setVisibleSeries] = React.useState<Set<string>>(
-    new Set(['portfolio'])
-  )
+  
+  // Initialize visible series based on what's available
+  const getInitialVisibleSeries = () => {
+    const initial = new Set(['portfolio'])
+    if (showBenchmark && benchmark) initial.add('benchmark')
+    if (showHoldings && holdings) {
+      Object.keys(holdings).forEach(symbol => initial.add(symbol))
+    }
+    return initial
+  }
+  
+  const [visibleSeries, setVisibleSeries] = React.useState<Set<string>>(getInitialVisibleSeries)
+  
+  // Update visible series when showHoldings changes
+  React.useEffect(() => {
+    if (showHoldings && holdings) {
+      const newVisible = new Set(visibleSeries)
+      newVisible.add('portfolio')
+      Object.keys(holdings).forEach(symbol => newVisible.add(symbol))
+      setVisibleSeries(newVisible)
+    } else if (!showHoldings) {
+      const newVisible = new Set(['portfolio'])
+      if (showBenchmark && benchmark) newVisible.add('benchmark')
+      setVisibleSeries(newVisible)
+    }
+  }, [showHoldings, holdings, showBenchmark, benchmark])
 
   // Combine all data sources
   const combinedData = React.useMemo(() => {
@@ -114,6 +143,34 @@ export function PerformanceChart({
     })
   }, [data, benchmark, holdings, showBenchmark, showHoldings])
 
+  // Calculate Y-axis domain based on visible data
+  const yAxisDomain = React.useMemo(() => {
+    if (!combinedData.length) return ['auto', 'auto']
+    
+    const visibleData = combinedData.reduce((acc, point) => {
+      // Check each visible series
+      visibleSeries.forEach(seriesName => {
+        const value = point[seriesName]
+        if (typeof value === 'number' && !isNaN(value)) {
+          acc.push(value)
+        }
+      })
+      return acc
+    }, [] as number[])
+    
+    if (visibleData.length === 0) return ['auto', 'auto']
+    
+    const minValue = Math.min(...visibleData)
+    const maxValue = Math.max(...visibleData)
+    const range = maxValue - minValue
+    const padding = range * 0.05 // 5% padding
+    
+    return [
+      Math.max(0, minValue - padding), // Don't go below 0 for financial data
+      maxValue + padding
+    ]
+  }, [combinedData, visibleSeries])
+
   const toggleSeries = (seriesName: string) => {
     const newVisible = new Set(visibleSeries)
     if (newVisible.has(seriesName)) {
@@ -124,17 +181,28 @@ export function PerformanceChart({
     setVisibleSeries(newVisible)
   }
 
+  const CHART_COLORS = [
+    '#6366f1', // indigo-500 (main portfolio color)
+    '#8b5cf6', // violet-500
+    '#06b6d4', // cyan-500
+    '#10b981', // emerald-500
+    '#f59e0b', // amber-500
+    '#ef4444', // red-500
+    '#ec4899', // pink-500
+    '#84cc16', // lime-500
+  ]
+
   const colors = {
-    portfolio: '#3b82f6', // blue
-    benchmark: '#ef4444', // red
-    SPY: '#10b981', // green
-    QQQ: '#f59e0b', // yellow
-    IWM: '#8b5cf6', // purple
-    VTI: '#06b6d4', // cyan
-    BND: '#84cc16', // lime
+    portfolio: CHART_COLORS[0], // indigo for portfolio
+    benchmark: '#ef4444', // red for benchmark
   }
 
-  const getColor = (key: string) => colors[key as keyof typeof colors] || '#6b7280'
+  const getColor = (key: string, index?: number) => {
+    if (key === 'portfolio') return colors.portfolio
+    if (key === 'benchmark') return colors.benchmark
+    if (typeof index === 'number') return CHART_COLORS[(index + 1) % CHART_COLORS.length]
+    return colors[key as keyof typeof colors] || '#6b7280'
+  }
 
   const renderChart = () => {
     const ChartComponent = chartType === 'area' ? AreaChart : LineChart
@@ -153,6 +221,7 @@ export function PerformanceChart({
             tickFormatter={formatYAxis}
             stroke="#64748b"
             fontSize={12}
+            domain={yAxisDomain}
           />
           <Tooltip content={<CustomTooltip />} />
           <Legend />
@@ -166,7 +235,7 @@ export function PerformanceChart({
                 stroke={getColor('portfolio')}
                 fill={getColor('portfolio')}
                 fillOpacity={0.1}
-                strokeWidth={2}
+                strokeWidth={3}
                 name="Portfolio"
               />
             ) : (
@@ -174,7 +243,7 @@ export function PerformanceChart({
                 type="monotone"
                 dataKey="portfolio"
                 stroke={getColor('portfolio')}
-                strokeWidth={2}
+                strokeWidth={3}
                 dot={false}
                 name="Portfolio"
               />
@@ -208,15 +277,15 @@ export function PerformanceChart({
 
           {/* Holdings lines/areas */}
           {showHoldings && holdings && 
-            Object.keys(holdings).map((symbol) => 
+            Object.keys(holdings).map((symbol, index) => 
               visibleSeries.has(symbol) && (
                 chartType === 'area' ? (
                   <Area
                     key={symbol}
                     type="monotone"
                     dataKey={symbol}
-                    stroke={getColor(symbol)}
-                    fill={getColor(symbol)}
+                    stroke={getColor(symbol, index)}
+                    fill={getColor(symbol, index)}
                     fillOpacity={0.05}
                     strokeWidth={1}
                     name={symbol}
@@ -226,7 +295,7 @@ export function PerformanceChart({
                     key={symbol}
                     type="monotone"
                     dataKey={symbol}
-                    stroke={getColor(symbol)}
+                    stroke={getColor(symbol, index)}
                     strokeWidth={1}
                     dot={false}
                     name={symbol}
@@ -273,20 +342,25 @@ export function PerformanceChart({
 
         {/* Series toggles */}
         <div className="flex flex-wrap gap-2">
-          {getAllSeries().map((series) => (
-            <Badge
-              key={series}
-              variant={visibleSeries.has(series) ? 'default' : 'outline'}
-              className="cursor-pointer"
-              onClick={() => toggleSeries(series)}
-            >
-              <div
-                className="w-2 h-2 rounded-full mr-1"
-                style={{ backgroundColor: getColor(series) }}
-              />
-              {series.charAt(0).toUpperCase() + series.slice(1)}
-            </Badge>
-          ))}
+          {getAllSeries().map((series, index) => {
+            const isHolding = showHoldings && holdings && Object.keys(holdings).includes(series)
+            const holdingIndex = isHolding ? Object.keys(holdings).indexOf(series) : undefined
+            
+            return (
+              <Badge
+                key={series}
+                variant={visibleSeries.has(series) ? 'default' : 'outline'}
+                className="cursor-pointer"
+                onClick={() => toggleSeries(series)}
+              >
+                <div
+                  className="w-2 h-2 rounded-full mr-1"
+                  style={{ backgroundColor: getColor(series, holdingIndex) }}
+                />
+                {series.charAt(0).toUpperCase() + series.slice(1)}
+              </Badge>
+            )
+          })}
         </div>
       </CardHeader>
       
