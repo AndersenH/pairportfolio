@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-This is a Flask-based ETF portfolio backtesting application that allows users to create portfolios, run various investment strategies, and analyze historical performance using real market data.
+This is a modern Next.js 14 ETF portfolio backtesting application that allows users to create portfolios, run various investment strategies, and analyze historical performance using real market data. The application has been completely migrated from Flask to Next.js with significant enhancements and a professional ETF-Replay style interface.
 
 ## Key Development Commands
 
@@ -27,13 +27,16 @@ cp .env.example .env  # Create if not exists
 
 ```bash
 # Development server
-python3 app.py
+npm run dev
 
-# Production server with Gunicorn
-gunicorn -w 4 -b 0.0.0.0:3000 app:app
+# Production build and start
+npm run build
+npm run start
 
-# Run database migrations
-flask db upgrade
+# Database operations
+npm run db:generate
+npm run db:push
+npm run db:migrate
 ```
 
 ### Testing
