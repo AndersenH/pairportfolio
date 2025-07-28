@@ -41,16 +41,21 @@ export const GET = withApiHandler(
         .map(d => d.close)
         .filter(p => p !== null) as number[]
       
+      const firstDataPoint = data[0]
+      const lastDataPoint = data[data.length - 1]
+      const firstPrice = prices[0]
+      const lastPrice = prices[prices.length - 1]
+      
       const statistics = {
         count: data.length,
-        firstDate: data[0]?.date,
-        lastDate: data[data.length - 1]?.date,
+        firstDate: firstDataPoint?.date,
+        lastDate: lastDataPoint?.date,
         minPrice: Math.min(...prices),
         maxPrice: Math.max(...prices),
-        currentPrice: prices[prices.length - 1],
-        change: prices.length > 1 ? prices[prices.length - 1] - prices[0] : 0,
-        changePercent: prices.length > 1 ? 
-          ((prices[prices.length - 1] - prices[0]) / prices[0]) * 100 : 0,
+        currentPrice: lastPrice,
+        change: prices.length > 1 && firstPrice && lastPrice ? lastPrice - firstPrice : 0,
+        changePercent: prices.length > 1 && firstPrice && lastPrice ? 
+          ((lastPrice - firstPrice) / firstPrice) * 100 : 0,
       }
 
       const response = createApiResponse(data, {

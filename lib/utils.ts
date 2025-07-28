@@ -215,3 +215,5 @@ export function createPaginationMeta(page: number, limit: number, total: number)
 export function validateETFSymbol(symbol: string): string {
   return symbol.toUpperCase().trim()
 }
+
+// Mobile responsive hook is now in client-utils.ts to avoid server-side imports

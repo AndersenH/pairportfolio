@@ -16,6 +16,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { useMobileResponsive } from '@/lib/client-utils'
 import type { ChartDataPoint } from '@/types'
 
 interface PerformanceChartProps {
@@ -35,27 +36,27 @@ interface TooltipProps {
   label?: string
 }
 
-const CustomTooltip = ({ active, payload, label }: TooltipProps) => {
+const CustomTooltip = ({ active, payload, label, isMobile }: TooltipProps & { isMobile?: boolean }) => {
   if (active && payload && payload.length) {
     const formattedDate = new Date(label || '').toLocaleDateString('en-US', { 
       month: 'short', 
       day: 'numeric', 
-      year: 'numeric' 
+      year: isMobile ? '2-digit' : 'numeric' 
     })
     
     return (
-      <div className="bg-background border rounded-lg p-3 shadow-lg">
-        <p className="text-sm font-medium mb-2">{formattedDate}</p>
+      <div className={`bg-background border rounded-lg shadow-lg ${isMobile ? 'p-2 max-w-[200px]' : 'p-3'}`}>
+        <p className={`font-medium mb-2 ${isMobile ? 'text-xs' : 'text-sm'}`}>{formattedDate}</p>
         {payload.map((entry, index) => (
-          <div key={index} className="flex items-center space-x-2 text-sm">
+          <div key={index} className={`flex items-center space-x-2 ${isMobile ? 'text-xs' : 'text-sm'}`}>
             <div
-              className="w-3 h-3 rounded"
+              className="w-3 h-3 rounded flex-shrink-0"
               style={{ backgroundColor: entry.color }}
             />
-            <span className="font-medium">{entry.name}:</span>
+            <span className="font-medium truncate">{entry.name}:</span>
             <span className="text-muted-foreground">
               {typeof entry.value === 'number' 
-                ? `${((entry.value - 1) * 100).toFixed(2)}%`
+                ? `${((entry.value - 1) * 100).toFixed(isMobile ? 1 : 2)}%`
                 : entry.value
               }
             </span>
@@ -69,10 +70,10 @@ const CustomTooltip = ({ active, payload, label }: TooltipProps) => {
 
 const formatYAxis = (value: number) => `${((value - 1) * 100).toFixed(0)}%`
 
-const formatXAxis = (value: string) => {
+const formatXAxis = (value: string, isMobile?: boolean) => {
   const date = new Date(value)
   return date.toLocaleDateString('en-US', { 
-    month: 'short',
+    month: isMobile ? 'numeric' : 'short',
     year: '2-digit'
   })
 }
@@ -87,7 +88,9 @@ export function PerformanceChart({
   height = 400,
   className,
 }: PerformanceChartProps) {
+  const { isMobile, isTablet, height: viewportHeight, isTouch } = useMobileResponsive()
   const [chartType, setChartType] = React.useState<'line' | 'area'>('line')
+  const [mobileSimplified, setMobileSimplified] = React.useState(false)
   
   // Initialize visible series based on what's available
   const getInitialVisibleSeries = () => {
@@ -204,27 +207,72 @@ export function PerformanceChart({
     return colors[key as keyof typeof colors] || '#6b7280'
   }
 
+  // Calculate responsive dimensions
+  const getChartHeight = () => {
+    if (isMobile) {
+      return Math.min(viewportHeight * 0.4, 300) // 40% of viewport height, max 300px
+    }
+    if (isTablet) {
+      return Math.min(height, 350)
+    }
+    return height
+  }
+
+  const getResponsiveFontSize = () => {
+    if (isMobile) return 10
+    if (isTablet) return 11
+    return 12
+  }
+
+  const getStrokeWidth = (type: 'main' | 'secondary' | 'holding') => {
+    if (!isMobile) {
+      return type === 'main' ? 3 : type === 'secondary' ? 2 : 1
+    }
+    // Thicker lines for better touch interaction on mobile
+    return type === 'main' ? 4 : type === 'secondary' ? 3 : 2
+  }
+
   const renderChart = () => {
     const ChartComponent = chartType === 'area' ? AreaChart : LineChart
+    const chartData = mobileSimplified && isMobile ? 
+      combinedData.filter((_, index) => index % 2 === 0) : // Show every other point on mobile
+      combinedData
 
     return (
-      <ResponsiveContainer width="100%" height={height}>
-        <ChartComponent data={combinedData}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+      <ResponsiveContainer width="100%" height={getChartHeight()}>
+        <ChartComponent data={chartData} margin={{ top: 5, right: isMobile ? 5 : 30, left: isMobile ? 5 : 20, bottom: 5 }}>
+          <CartesianGrid 
+            strokeDasharray="3 3" 
+            stroke="#f1f5f9" 
+            strokeWidth={isMobile ? 0.5 : 1}
+          />
           <XAxis 
             dataKey="date" 
-            tickFormatter={formatXAxis}
+            tickFormatter={(value) => formatXAxis(value, isMobile)}
             stroke="#64748b"
-            fontSize={12}
+            fontSize={getResponsiveFontSize()}
+            tick={{ fontSize: getResponsiveFontSize() }}
+            interval={isMobile ? 'preserveStartEnd' : 'auto'}
+            tickLine={!isMobile}
+            axisLine={!isMobile}
           />
           <YAxis 
             tickFormatter={formatYAxis}
             stroke="#64748b"
-            fontSize={12}
+            fontSize={getResponsiveFontSize()}
+            tick={{ fontSize: getResponsiveFontSize() }}
             domain={yAxisDomain}
+            width={isMobile ? 40 : 60}
+            tickLine={!isMobile}
+            axisLine={!isMobile}
           />
-          <Tooltip content={<CustomTooltip />} />
-          <Legend />
+          <Tooltip 
+            content={<CustomTooltip isMobile={isMobile} />}
+            cursor={{ strokeWidth: isMobile ? 2 : 1 }}
+            allowEscapeViewBox={{ x: true, y: true }}
+            position={isMobile ? { x: 'auto', y: 'auto' } : undefined}
+          />
+          {!isMobile && <Legend />}
 
           {/* Portfolio line/area */}
           {visibleSeries.has('portfolio') && (
@@ -235,17 +283,19 @@ export function PerformanceChart({
                 stroke={getColor('portfolio')}
                 fill={getColor('portfolio')}
                 fillOpacity={0.1}
-                strokeWidth={3}
+                strokeWidth={getStrokeWidth('main')}
                 name="Portfolio"
+                activeDot={{ r: isMobile ? 6 : 4, strokeWidth: 2 }}
               />
             ) : (
               <Line
                 type="monotone"
                 dataKey="portfolio"
                 stroke={getColor('portfolio')}
-                strokeWidth={3}
+                strokeWidth={getStrokeWidth('main')}
                 dot={false}
                 name="Portfolio"
+                activeDot={{ r: isMobile ? 6 : 4, strokeWidth: 2 }}
               />
             )
           )}
@@ -259,25 +309,27 @@ export function PerformanceChart({
                 stroke={getColor('benchmark')}
                 fill={getColor('benchmark')}
                 fillOpacity={0.1}
-                strokeWidth={2}
+                strokeWidth={getStrokeWidth('secondary')}
                 name="Benchmark"
+                activeDot={{ r: isMobile ? 5 : 3, strokeWidth: 2 }}
               />
             ) : (
               <Line
                 type="monotone"
                 dataKey="benchmark"
                 stroke={getColor('benchmark')}
-                strokeWidth={2}
+                strokeWidth={getStrokeWidth('secondary')}
                 dot={false}
                 name="Benchmark"
-                strokeDasharray="5 5"
+                strokeDasharray={isMobile ? "3 3" : "5 5"}
+                activeDot={{ r: isMobile ? 5 : 3, strokeWidth: 2 }}
               />
             )
           )}
 
-          {/* Holdings lines/areas */}
-          {showHoldings && holdings && 
-            Object.keys(holdings).map((symbol, index) => 
+          {/* Holdings lines/areas - limit on mobile */}
+          {showHoldings && holdings && !mobileSimplified &&
+            Object.keys(holdings).slice(0, isMobile ? 3 : Object.keys(holdings).length).map((symbol, index) => 
               visibleSeries.has(symbol) && (
                 chartType === 'area' ? (
                   <Area
@@ -287,8 +339,9 @@ export function PerformanceChart({
                     stroke={getColor(symbol, index)}
                     fill={getColor(symbol, index)}
                     fillOpacity={0.05}
-                    strokeWidth={1}
+                    strokeWidth={getStrokeWidth('holding')}
                     name={symbol}
+                    activeDot={{ r: isMobile ? 4 : 2, strokeWidth: 1 }}
                   />
                 ) : (
                   <Line
@@ -296,9 +349,10 @@ export function PerformanceChart({
                     type="monotone"
                     dataKey={symbol}
                     stroke={getColor(symbol, index)}
-                    strokeWidth={1}
+                    strokeWidth={getStrokeWidth('holding')}
                     dot={false}
                     name={symbol}
+                    activeDot={{ r: isMobile ? 4 : 2, strokeWidth: 1 }}
                   />
                 )
               )
@@ -318,31 +372,48 @@ export function PerformanceChart({
 
   return (
     <Card className={className}>
-      <CardHeader>
-        <div className="flex flex-col space-y-4 sm:flex-row sm:items-center sm:justify-between sm:space-y-0">
-          <CardTitle>{title}</CardTitle>
+      <CardHeader className={isMobile ? 'p-4' : undefined}>
+        <div className="flex flex-col space-y-3 sm:flex-row sm:items-center sm:justify-between sm:space-y-0">
+          <CardTitle className={isMobile ? 'text-lg' : undefined}>{title}</CardTitle>
           
-          <div className="flex items-center space-x-2">
-            <Button
-              variant={chartType === 'line' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setChartType('line')}
-            >
-              Line
-            </Button>
-            <Button
-              variant={chartType === 'area' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setChartType('area')}
-            >
-              Area
-            </Button>
+          <div className="flex items-center gap-2">
+            {/* Chart type controls */}
+            <div className="flex items-center space-x-1">
+              <Button
+                variant={chartType === 'line' ? 'default' : 'outline'}
+                size={isMobile ? 'xs' : 'sm'}
+                onClick={() => setChartType('line')}
+                className={isMobile ? 'px-2 py-1 text-xs h-7' : undefined}
+              >
+                Line
+              </Button>
+              <Button
+                variant={chartType === 'area' ? 'default' : 'outline'}
+                size={isMobile ? 'xs' : 'sm'}
+                onClick={() => setChartType('area')}
+                className={isMobile ? 'px-2 py-1 text-xs h-7' : undefined}
+              >
+                Area
+              </Button>
+            </div>
+
+            {/* Mobile simplification toggle */}
+            {isMobile && showHoldings && holdings && Object.keys(holdings).length > 3 && (
+              <Button
+                variant={mobileSimplified ? 'default' : 'outline'}
+                size="xs"
+                onClick={() => setMobileSimplified(!mobileSimplified)}
+                className="px-2 py-1 text-xs h-7"
+              >
+                Simple
+              </Button>
+            )}
           </div>
         </div>
 
         {/* Series toggles */}
-        <div className="flex flex-wrap gap-2">
-          {getAllSeries().map((series, index) => {
+        <div className={`flex flex-wrap gap-1.5 ${isMobile ? 'max-h-20 overflow-y-auto' : ''}`}>
+          {getAllSeries().slice(0, isMobile ? 6 : getAllSeries().length).map((series, index) => {
             const isHolding = showHoldings && holdings && Object.keys(holdings).includes(series)
             const holdingIndex = isHolding ? Object.keys(holdings).indexOf(series) : undefined
             
@@ -350,25 +421,52 @@ export function PerformanceChart({
               <Badge
                 key={series}
                 variant={visibleSeries.has(series) ? 'default' : 'outline'}
-                className="cursor-pointer"
+                className={`cursor-pointer touch-manipulation ${
+                  isMobile ? 'text-xs px-2 py-1 h-6 min-h-[24px]' : ''
+                } ${isTouch ? 'min-w-[44px] min-h-[44px] flex items-center justify-center' : ''}`}
                 onClick={() => toggleSeries(series)}
               >
                 <div
-                  className="w-2 h-2 rounded-full mr-1"
+                  className={`rounded-full mr-1 ${isMobile ? 'w-1.5 h-1.5' : 'w-2 h-2'}`}
                   style={{ backgroundColor: getColor(series, holdingIndex) }}
                 />
-                {series.charAt(0).toUpperCase() + series.slice(1)}
+                <span className="truncate">
+                  {series.charAt(0).toUpperCase() + series.slice(1)}
+                </span>
               </Badge>
             )
           })}
+          {isMobile && getAllSeries().length > 6 && (
+            <Badge variant="outline" className="text-xs px-2 py-1 h-6">
+              +{getAllSeries().length - 6} more
+            </Badge>
+          )}
         </div>
+
+        {/* Mobile legend */}
+        {isMobile && (
+          <div className="text-xs text-muted-foreground space-y-1">
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-0.5 bg-indigo-500 rounded"></div>
+              <span>Portfolio</span>
+              {showBenchmark && benchmark && (
+                <>
+                  <div className="w-3 h-0.5 bg-red-500 rounded border-dashed border-t"></div>
+                  <span>Benchmark</span>
+                </>
+              )}
+            </div>
+          </div>
+        )}
       </CardHeader>
       
-      <CardContent>
+      <CardContent className={isMobile ? 'p-2 pt-0' : undefined}>
         {combinedData.length > 0 ? (
           renderChart()
         ) : (
-          <div className="flex items-center justify-center h-64 text-muted-foreground">
+          <div className={`flex items-center justify-center text-muted-foreground ${
+            isMobile ? 'h-32 text-sm' : 'h-64'
+          }`}>
             No performance data available
           </div>
         )}

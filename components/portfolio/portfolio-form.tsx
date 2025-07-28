@@ -485,7 +485,7 @@ export function BacktestConfigurationForm({
       name: initialData?.name || '',
       portfolioId: initialData?.portfolioId || '',
       strategyId: initialData?.strategyId || 'buy-hold',
-      startDate: initialData?.startDate || new Date(new Date().getFullYear() - 2, 0, 1),
+      startDate: initialData?.startDate || new Date(new Date().getFullYear() - 5, new Date().getMonth(), new Date().getDate()),
       endDate: initialData?.endDate || new Date(),
       initialCapital: initialData?.initialCapital || 100000,
       rebalancingFrequency: initialData?.rebalancingFrequency || 'monthly',

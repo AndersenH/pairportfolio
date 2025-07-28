@@ -187,8 +187,11 @@ export class BacktestEngine {
         const prevPrice = priceArray[i - 1];
         const currentPrice = priceArray[i];
         
-        if (prevPrice > 0) {
+        if (prevPrice > 0 && currentPrice >= 0) {
           returns[symbol].push((currentPrice - prevPrice) / prevPrice);
+        } else if (prevPrice < 0 && currentPrice !== 0) {
+          // Handle negative prices (though uncommon in stock data)
+          returns[symbol].push((currentPrice - prevPrice) / Math.abs(prevPrice));
         } else {
           returns[symbol].push(0);
         }
@@ -709,7 +712,12 @@ export class BacktestEngine {
       }
 
       // Calculate SPY returns
-      const spyPrices = spyData.map(d => d.adj_close || d.close).filter(p => p !== null) as number[];
+      const spyPrices = spyData.map(d => d.adj_close || d.close).filter(p => p !== null && p > 0) as number[];
+      
+      if (spyPrices.length < 2) {
+        return undefined;
+      }
+      
       const spyReturns: number[] = [0]; // First return is zero
       
       for (let i = 1; i < spyPrices.length; i++) {
@@ -724,6 +732,10 @@ export class BacktestEngine {
       const minLength = Math.min(portfolioReturns.length, spyReturns.length);
       const portfolioAligned = portfolioReturns.slice(-minLength);
       const spyAligned = spyReturns.slice(-minLength);
+
+      if (minLength < 2) {
+        return undefined;
+      }
 
       return PerformanceMetricsCalculator.calculateBenchmarkComparison(
         portfolioAligned,
@@ -804,10 +816,10 @@ export class BacktestEngine {
     const ma: number[] = [];
     
     for (let i = 0; i < prices.length; i++) {
-      if (i < period) {
+      if (i < period - 1) {
         ma.push(prices[i]); // Use current price for initial periods
       } else {
-        const sum = prices.slice(i - period, i).reduce((acc, price) => acc + price, 0);
+        const sum = prices.slice(i - period + 1, i + 1).reduce((acc, price) => acc + price, 0);
         ma.push(sum / period);
       }
     }

@@ -8,6 +8,21 @@
     "start": "next start",
     "lint": "next lint",
     "type-check": "tsc --noEmit",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "test:ci": "jest --ci --coverage --watchAll=false",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:debug": "playwright test --debug",
+    "test:e2e:report": "playwright show-report",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:chrome": "playwright test --project=chromium",
+    "test:e2e:firefox": "playwright test --project=firefox",
+    "test:e2e:webkit": "playwright test --project=webkit",
+    "test:e2e:mobile": "playwright test --project='Mobile Chrome' --project='Mobile Safari'",
+    "test:e2e:smoke": "playwright test --grep='Smoke Tests'",
+    "test:all": "npm run test && npm run test:e2e",
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",
     "db:generate": "prisma generate",
@@ -18,7 +33,9 @@
     "config:test": "node scripts/test-config.js",
     "config:setup": "npm run config:validate:dev && npm run config:test",
     "prebuild": "npm run config:validate:prod",
-    "health-check": "curl -f http://localhost:3000/api/health || exit 1"
+    "health-check": "curl -f http://localhost:3000/api/health || exit 1",
+    "check-app": "./scripts/check-and-restart.sh",
+    "ensure-running": "lsof -i:3000 || PORT=3000 npm run dev"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.0",
@@ -29,6 +46,7 @@
     "@radix-ui/react-dropdown-menu": "^2.1.1",
     "@radix-ui/react-select": "^2.1.1",
     "@radix-ui/react-slot": "^1.1.0",
+    "@radix-ui/react-tabs": "^1.1.12",
     "@radix-ui/react-toast": "^1.2.1",
     "@tailwindcss/forms": "^0.5.7",
     "@tailwindcss/typography": "^0.5.13",
@@ -61,14 +79,20 @@
     "zustand": "^4.5.4"
   },
   "devDependencies": {
+    "@playwright/test": "^1.54.1",
+    "@types/jest": "^29.5.12",
     "@typescript-eslint/eslint-plugin": "^7.17.0",
     "@typescript-eslint/parser": "^7.17.0",
     "eslint": "^8.57.0",
     "eslint-config-next": "^14.2.5",
     "husky": "^9.1.4",
+    "jest": "^29.7.0",
+    "jest-environment-node": "^29.7.0",
     "lint-staged": "^15.2.7",
+    "playwright": "^1.54.1",
     "prettier": "^3.3.3",
-    "prettier-plugin-tailwindcss": "^0.6.5"
+    "prettier-plugin-tailwindcss": "^0.6.5",
+    "ts-jest": "^29.1.5"
   },
   "lint-staged": {
     "*.{js,jsx,ts,tsx}": [

@@ -24,15 +24,15 @@ export const GET = withApiHandler(
     try {
       const { backtests, total } = await backtestService.getUserBacktests(
         user.id,
-        page,
-        limit,
+        page || 1,
+        limit || 10,
         sortBy,
         sortOrder
       )
 
       const response = createApiResponse(
         backtests,
-        createPaginationMeta(page, limit, total)
+        createPaginationMeta(page || 1, limit || 10, total)
       )
 
       return NextResponse.json(response)
@@ -92,6 +92,7 @@ export const POST = withApiHandler(
         ...validatedData,
         strategyId,
         userId: user.id,
+        initialCapital: validatedData.initialCapital || 10000,
       })
 
       const response = createApiResponse(

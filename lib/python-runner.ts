@@ -62,18 +62,33 @@ export async function runPythonWithData(
   inputData: any
 ): Promise<PythonResult> {
   return new Promise((resolve) => {
-    const pythonPath = process.env.PYTHON_PATH || 'python3';
+    const pythonDir = path.join(process.cwd(), 'python');
+    const venvPython = path.join(pythonDir, 'venv/bin/python3');
     const fullPath = path.join(process.cwd(), scriptPath);
     
+    // Use virtual environment Python directly
+    const pythonPath = process.env.PYTHON_PATH || venvPython;
+    
+    const env = {
+      ...process.env,
+      PYTHONPATH: pythonDir,
+      VIRTUAL_ENV: path.join(pythonDir, 'venv')
+    };
+    
     const python = spawn(pythonPath, [fullPath], {
-      stdio: ['pipe', 'pipe', 'pipe']
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env,
+      cwd: process.cwd()
     });
     
     let stdout = '';
     let stderr = '';
     
+    // Transform data format for Python backtest engine
+    const transformedData = transformForPython(inputData);
+    
     // Send JSON data to Python stdin
-    python.stdin.write(JSON.stringify(inputData));
+    python.stdin.write(JSON.stringify(transformedData));
     python.stdin.end();
     
     python.stdout.on('data', (data) => {
@@ -93,12 +108,43 @@ export async function runPythonWithData(
         });
       } else {
         try {
-          const data = JSON.parse(stdout);
-          resolve({ success: true, data });
+          const result = JSON.parse(stdout);
+          if (result.success) {
+            resolve({ success: true, data: result.data });
+          } else {
+            resolve({ success: false, error: result.error, stderr: result.traceback });
+          }
         } catch (e) {
           resolve({ success: false, error: 'Failed to parse Python output', stdout, stderr });
         }
       }
     });
+    
+    python.on('error', (error) => {
+      resolve({
+        success: false,
+        error: error.message
+      });
+    });
   });
+}
+
+// Transform Next.js API data format to Python backtest engine format
+function transformForPython(inputData: any): any {
+  const { strategy, holdings, startDate, endDate, initialCapital, parameters, metadata } = inputData;
+  
+  return {
+    strategy: {
+      type: strategy || 'buy_hold',
+      parameters: parameters || {}
+    },
+    portfolio: {
+      holdings: holdings || []
+    },
+    start_date: startDate,
+    end_date: endDate,
+    initial_capital: initialCapital || 10000,
+    rebalancing_frequency: parameters?.rebalanceFrequency || 'monthly',
+    metadata: metadata || {}
+  };
 }

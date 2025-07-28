@@ -1,5 +1,8 @@
+'use client'
+
 import { type ClassValue, clsx } from 'clsx'
 import { twMerge } from 'tailwind-merge'
+import { useState, useEffect } from 'react'
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
@@ -28,27 +31,82 @@ export function formatDate(date: Date): string {
   }).format(date)
 }
 
-// Symbol validation
-export function validateETFSymbol(symbol: string): string {
-  return symbol.toUpperCase().trim()
+// Mobile responsive hook
+interface MobileResponsiveConfig {
+  breakpoints?: {
+    mobile?: number
+    tablet?: number
+  }
 }
 
-// Client-side validation helpers
-export function isValidEmail(email: string): boolean {
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-  return emailRegex.test(email)
+interface MobileResponsiveResult {
+  isMobile: boolean
+  isTablet: boolean
+  isDesktop: boolean
+  width: number
+  height: number
+  isTouch: boolean
 }
 
-export function isValidSymbol(symbol: string): boolean {
-  const symbolRegex = /^[A-Z]{1,5}$/
-  return symbolRegex.test(symbol.toUpperCase())
+const DEFAULT_BREAKPOINTS = {
+  mobile: 640,   // Tailwind's sm breakpoint
+  tablet: 1024,  // Tailwind's lg breakpoint
 }
 
-// Number utilities
-export function clamp(value: number, min: number, max: number): number {
-  return Math.min(Math.max(value, min), max)
-}
+export function useMobileResponsive(config?: MobileResponsiveConfig): MobileResponsiveResult {
+  const breakpoints = {
+    ...DEFAULT_BREAKPOINTS,
+    ...config?.breakpoints,
+  }
 
-export function roundToDecimals(value: number, decimals: number): number {
-  return Math.round(value * Math.pow(10, decimals)) / Math.pow(10, decimals)
+  const [windowSize, setWindowSize] = useState({
+    width: typeof window !== 'undefined' ? window.innerWidth : 0,
+    height: typeof window !== 'undefined' ? window.innerHeight : 0,
+  })
+
+  const [isTouch, setIsTouch] = useState(false)
+
+  useEffect(() => {
+    // Check for touch capability
+    const checkTouch = () => {
+      setIsTouch(
+        'ontouchstart' in window ||
+        navigator.maxTouchPoints > 0 ||
+        (navigator as any).msMaxTouchPoints > 0
+      )
+    }
+
+    // Handle resize
+    const handleResize = () => {
+      setWindowSize({
+        width: window.innerWidth,
+        height: window.innerHeight,
+      })
+    }
+
+    // Initial checks
+    checkTouch()
+    handleResize()
+
+    // Add event listeners
+    window.addEventListener('resize', handleResize)
+
+    // Cleanup
+    return () => {
+      window.removeEventListener('resize', handleResize)
+    }
+  }, [])
+
+  const isMobile = windowSize.width <= breakpoints.mobile
+  const isTablet = windowSize.width > breakpoints.mobile && windowSize.width <= breakpoints.tablet
+  const isDesktop = windowSize.width > breakpoints.tablet
+
+  return {
+    isMobile,
+    isTablet,
+    isDesktop,
+    width: windowSize.width,
+    height: windowSize.height,
+    isTouch,
+  }
 }

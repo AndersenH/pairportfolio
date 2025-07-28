@@ -43,9 +43,9 @@ export const POST = withApiHandler(
       // Calculate summary statistics
       const summary = {
         requestedSymbols: uniqueSymbols.length,
-        successfulSymbols: Object.keys(data).filter(symbol => data[symbol].length > 0).length,
-        failedSymbols: Object.keys(data).filter(symbol => data[symbol].length === 0),
-        totalDataPoints: Object.values(data).reduce((sum, points) => sum + points.length, 0),
+        successfulSymbols: Object.keys(data).filter(symbol => data[symbol]?.length > 0).length,
+        failedSymbols: Object.keys(data).filter(symbol => (data[symbol]?.length || 0) === 0),
+        totalDataPoints: Object.values(data).reduce((sum, points) => sum + (points?.length || 0), 0),
         processingTime: Date.now() - startTime,
       }
 

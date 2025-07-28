@@ -18,7 +18,7 @@ export const GET = withApiHandler(
     const user = await requireAuth(request)
     const queryParams = validateQueryParams(paginationSchema)(request)
     
-    const { page, limit, sortBy = 'createdAt', sortOrder } = queryParams
+    const { page = 1, limit = 10, sortBy = 'createdAt', sortOrder } = queryParams
     const offset = (page - 1) * limit
 
     const [portfolios, total] = await Promise.all([
@@ -111,7 +111,7 @@ export const POST = withApiHandler(
         name: validatedData.name,
         description: validatedData.description,
         isPublic: validatedData.isPublic,
-        initialCapital: validatedData.initialCapital,
+        initialCapital: validatedData.initialCapital || 10000,
         userId: user.id,
         holdings: {
           create: validatedData.holdings.map((holding) => ({

@@ -52,7 +52,7 @@ function DashboardStats({ portfolios, isLoading }: DashboardStatsProps) {
     )
     
     const allocations = portfolios.map(p =>
-      p.holdings.reduce((sum, h) => sum + h.allocation, 0)
+      p.holdings.reduce((sum, h) => sum + Number(h.allocation), 0)
     )
     
     const avgAllocation = allocations.reduce((sum, a) => sum + a, 0) / allocations.length
@@ -131,19 +131,19 @@ function QuickActions() {
       </CardHeader>
       <CardContent className="space-y-3">
         <Button className="w-full justify-start" asChild>
-          <Link href="/portfolios/new">
+          <Link href="/portfolios/new" as="/portfolios/new">
             <Briefcase className="h-4 w-4 mr-2" />
             Create New Portfolio
           </Link>
         </Button>
         <Button variant="outline" className="w-full justify-start" asChild>
-          <Link href="/backtests/new">
+          <Link href="/backtests/new" as="/backtests/new">
             <BarChart3 className="h-4 w-4 mr-2" />
             Run Backtest
           </Link>
         </Button>
         <Button variant="outline" className="w-full justify-start" asChild>
-          <Link href="/market-data">
+          <Link href="/market-data" as="/market-data">
             <Activity className="h-4 w-4 mr-2" />
             Browse Market Data
           </Link>
@@ -160,7 +160,7 @@ function RecentActivity() {
         <div className="flex items-center justify-between">
           <CardTitle>Recent Activity</CardTitle>
           <Button variant="ghost" size="sm" asChild>
-            <Link href="/backtests">
+            <Link href="/backtests" as="/backtests">
               View All
               <ArrowRight className="h-4 w-4 ml-1" />
             </Link>
@@ -188,14 +188,14 @@ function RecentActivity() {
                   </div>
                 </div>
                 <div className="text-right">
-                  {backtest.metrics ? (
+                  {backtest.metrics && backtest.metrics.totalReturn !== null ? (
                     <Badge
                       variant={
-                        backtest.metrics.totalReturn > 0 ? 'success' : 'destructive'
+                        Number(backtest.metrics.totalReturn) > 0 ? 'success' : 'destructive'
                       }
                     >
-                      {backtest.metrics.totalReturn > 0 ? '+' : ''}
-                      {(backtest.metrics.totalReturn * 100).toFixed(1)}%
+                      {Number(backtest.metrics.totalReturn) > 0 ? '+' : ''}
+                      {(Number(backtest.metrics.totalReturn) * 100).toFixed(1)}%
                     </Badge>
                   ) : (
                     <Badge variant="secondary">Running</Badge>
@@ -226,7 +226,7 @@ export default function DashboardPage() {
             </p>
           </div>
           <Button asChild>
-            <Link href="/portfolios/new">
+            <Link href="/portfolios/new" as="/portfolios/new">
               <Plus className="h-4 w-4 mr-2" />
               New Portfolio
             </Link>
@@ -271,7 +271,7 @@ export default function DashboardPage() {
                 <div className="flex items-center justify-between">
                   <CardTitle>Recent Portfolios</CardTitle>
                   <Button variant="ghost" size="sm" asChild>
-                    <Link href="/portfolios">
+                    <Link href="/portfolios" as="/portfolios">
                       View All
                       <ArrowRight className="h-4 w-4 ml-1" />
                     </Link>
@@ -290,7 +290,7 @@ export default function DashboardPage() {
                     <Briefcase className="h-12 w-12 mx-auto mb-4 opacity-50" />
                     <p>No portfolios created yet</p>
                     <Button className="mt-4" asChild>
-                      <Link href="/portfolios/new">
+                      <Link href="/portfolios/new" as="/portfolios/new">
                         Create Your First Portfolio
                       </Link>
                     </Button>
@@ -330,7 +330,7 @@ export default function DashboardPage() {
                 </CardHeader>
                 <CardContent>
                   <AllocationChart
-                    holdings={portfolios[0].holdings}
+                    holdings={portfolios[0]?.holdings || []}
                     title=""
                     size="sm"
                     showLegend={false}

@@ -241,6 +241,20 @@ class EnhancedBacktestRunner:
                 if benchmark_comparison:
                     results.benchmark_comparison = benchmark_comparison.__dict__
             
+            # Extract individual asset price data for enhanced calculations
+            asset_prices = {}
+            if price_data_dict:
+                for symbol in available_symbols:
+                    if symbol in price_data_dict:
+                        # Convert DataFrame to list of adjusted close prices
+                        df = price_data_dict[symbol]
+                        if 'adj_close' in df.columns:
+                            asset_prices[symbol] = df['adj_close'].tolist()
+                        elif 'close' in df.columns:
+                            asset_prices[symbol] = df['close'].tolist()
+                        else:
+                            logger.warning(f"No price data found for {symbol}")
+
             # Convert results to dictionary format
             results_dict = {
                 'portfolio_values': results.portfolio_values,
@@ -249,7 +263,8 @@ class EnhancedBacktestRunner:
                 'weights': results.weights,
                 'metrics': results.metrics,
                 'drawdown': results.drawdown,
-                'benchmark_comparison': results.benchmark_comparison
+                'benchmark_comparison': results.benchmark_comparison,
+                'asset_prices': asset_prices  # Add individual asset price data
             }
             
             # Add metadata

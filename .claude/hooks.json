@@ -1,0 +1,29 @@
+{
+  "pre-command": {
+    "ensure-app-running": {
+      "command": "./hooks/ensure-app-running.sh",
+      "description": "Ensures the Next.js application is always running on port 3000",
+      "enabled": true,
+      "triggers": ["*"]
+    }
+  },
+  "post-implementation": {
+    "command": "./hooks/check-webapp-status.sh",
+    "description": "Check webapp status after implementation changes",
+    "enabled": true,
+    "triggers": [
+      "file-write",
+      "file-edit", 
+      "multi-edit",
+      "bash-command"
+    ]
+  },
+  "post-command": {
+    "verify-app-status": {
+      "command": "lsof -i:3000 > /dev/null 2>&1 && echo '✅ App running on port 3000' || echo '❌ App not running - run ./hooks/ensure-app-running.sh'",
+      "description": "Quick verification of app status",
+      "enabled": true,
+      "triggers": ["*"]
+    }
+  }
+}

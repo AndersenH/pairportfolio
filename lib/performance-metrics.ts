@@ -84,7 +84,7 @@ export class PerformanceMetricsCalculator {
       const trackingError = this.calculateTrackingError(portfolioAligned, benchmarkAligned);
 
       return {
-        benchmarkSymbol,
+        benchmarkSymbol: benchmarkSymbol,
         benchmarkReturn: this.roundToDecimal(benchmarkReturn),
         benchmarkVolatility: this.roundToDecimal(benchmarkVolatility),
         benchmarkSharpe: this.roundToDecimal(benchmarkSharpe),

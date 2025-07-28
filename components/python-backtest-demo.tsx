@@ -15,6 +15,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts';
+import { BacktestResultsDisplay } from './performance/backtest-results-display';
 
 export function PythonBacktestDemo() {
   const { runBacktest, loading, error, result } = usePythonBacktest();
@@ -121,61 +122,38 @@ export function PythonBacktestDemo() {
           )}
 
           {result && (
-            <div className="space-y-6">
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="p-4 bg-gray-50 rounded-lg">
-                  <div className="text-sm text-gray-600">Total Return</div>
-                  <div className="text-xl font-bold">
-                    {((result.metrics?.total_return || 0) * 100).toFixed(2)}%
-                  </div>
-                </div>
-                <div className="p-4 bg-gray-50 rounded-lg">
-                  <div className="text-sm text-gray-600">Annual Return</div>
-                  <div className="text-xl font-bold">
-                    {((result.metrics?.annualized_return || 0) * 100).toFixed(2)}%
-                  </div>
-                </div>
-                <div className="p-4 bg-gray-50 rounded-lg">
-                  <div className="text-sm text-gray-600">Volatility</div>
-                  <div className="text-xl font-bold">
-                    {((result.metrics?.volatility || 0) * 100).toFixed(2)}%
-                  </div>
-                </div>
-                <div className="p-4 bg-gray-50 rounded-lg">
-                  <div className="text-sm text-gray-600">Sharpe Ratio</div>
-                  <div className="text-xl font-bold">
-                    {(result.metrics?.sharpe_ratio || 0).toFixed(2)}
-                  </div>
-                </div>
-              </div>
-
-              {result.portfolio_values && (
-                <div className="h-64">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={formatChartData()}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis 
-                        dataKey="date" 
-                        tick={{ fontSize: 12 }}
-                        interval="preserveStartEnd"
-                      />
-                      <YAxis 
-                        tick={{ fontSize: 12 }}
-                        domain={['dataMin * 0.95', 'dataMax * 1.05']}
-                      />
-                      <Tooltip />
-                      <Line
-                        type="monotone"
-                        dataKey="value"
-                        stroke="#8884d8"
-                        strokeWidth={2}
-                        dot={false}
-                      />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
-              )}
-            </div>
+            <BacktestResultsDisplay
+              results={{
+                portfolioValues: result.portfolio_values || [],
+                returns: result.returns || [],
+                dates: result.dates || [],
+                weights: result.weights || {},
+                metrics: {
+                  totalReturn: result.metrics?.total_return || 0,
+                  annualizedReturn: result.metrics?.annualized_return || 0,
+                  volatility: result.metrics?.volatility || 0,
+                  sharpeRatio: result.metrics?.sharpe_ratio || 0,
+                  maxDrawdown: result.metrics?.max_drawdown || 0,
+                  maxDrawdownDuration: result.metrics?.max_drawdown_duration || 0,
+                  sortinoRatio: result.metrics?.sortino_ratio || 0,
+                  calmarRatio: result.metrics?.calmar_ratio || 0,
+                  var95: result.metrics?.var_95 || 0,
+                  cvar95: result.metrics?.cvar_95 || 0,
+                  winRate: result.metrics?.win_rate || 0,
+                  profitFactor: result.metrics?.profit_factor || 0,
+                },
+                drawdown: result.drawdown || [],
+                assetPrices: result.asset_prices || null
+              }}
+              portfolioAllocation={{
+                'SPY': 0.6,
+                'BND': 0.4,
+                ...Object.fromEntries(
+                  (result.holdings || []).map((h: any) => [h.symbol, h.allocation])
+                )
+              }}
+              preCalculatedAssetPerformance={result.asset_performance || []} // Pass pre-calculated asset performance
+            />
           )}
         </CardContent>
       </Card>

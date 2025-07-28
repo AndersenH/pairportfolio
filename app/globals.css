@@ -24,6 +24,17 @@
     --input: 214.3 31.8% 91.4%;
     --ring: 221.2 83.2% 53.3%;
     --radius: 0.5rem;
+    
+    /* Mobile-specific custom properties */
+    --mobile-safe-area-top: env(safe-area-inset-top, 0px);
+    --mobile-safe-area-bottom: env(safe-area-inset-bottom, 0px);
+    --mobile-safe-area-left: env(safe-area-inset-left, 0px);
+    --mobile-safe-area-right: env(safe-area-inset-right, 0px);
+    --mobile-touch-target: 44px;
+    --mobile-font-scale: 1;
+    --chart-mobile-height: 300px;
+    --chart-tablet-height: 350px;
+    --chart-desktop-height: 400px;
   }
 
   .dark {
@@ -53,7 +64,396 @@
   * {
     @apply border-border;
   }
+  
+  html {
+    /* Prevent zoom on double tap for iOS */
+    touch-action: manipulation;
+    /* Enable smooth scrolling */
+    scroll-behavior: smooth;
+    /* Improve text rendering on high-DPI screens */
+    -webkit-text-size-adjust: 100%;
+    -moz-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+  
   body {
     @apply bg-background text-foreground;
+    /* Prevent bounce scrolling on iOS */
+    overscroll-behavior: none;
+    /* Enable hardware acceleration */
+    transform: translateZ(0);
+    /* Improve font rendering */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    /* Mobile-specific padding for safe areas */
+    padding-top: var(--mobile-safe-area-top);
+    padding-bottom: var(--mobile-safe-area-bottom);
+    padding-left: var(--mobile-safe-area-left);
+    padding-right: var(--mobile-safe-area-right);
+  }
+  
+  /* Improve focus visibility for accessibility */
+  *:focus-visible {
+    @apply outline-2 outline-offset-2 outline-ring;
+  }
+  
+  /* Hide focus for mouse users but keep for keyboard */
+  *:focus:not(:focus-visible) {
+    outline: none;
+  }
+}
+
+/* Mobile-specific component styles */
+@layer components {
+  /* Touch-friendly scrolling */
+  .mobile-scroll {
+    -webkit-overflow-scrolling: touch;
+    scroll-behavior: smooth;
+    overscroll-behavior: contain;
+  }
+  
+  /* Mobile-optimized buttons */
+  .mobile-touch-target {
+    min-height: var(--mobile-touch-target);
+    min-width: var(--mobile-touch-target);
+    touch-action: manipulation;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  
+  /* Chart container optimizations */
+  .chart-container {
+    position: relative;
+    overflow: hidden;
+    border-radius: calc(var(--radius) - 2px);
+    background: hsl(var(--card));
+    transition: all 0.2s ease-in-out;
+  }
+  
+  .chart-container-mobile {
+    height: var(--chart-mobile-height);
+    margin: 0 -0.5rem;
+    border-radius: 0;
+  }
+  
+  .chart-container-tablet {
+    height: var(--chart-tablet-height);
+  }
+  
+  .chart-container-desktop {
+    height: var(--chart-desktop-height);
+  }
+  
+  /* Financial data table optimizations */
+  .financial-table-mobile {
+    @apply text-xs;
+    border-collapse: separate;
+    border-spacing: 0;
+  }
+  
+  .financial-table-mobile th,
+  .financial-table-mobile td {
+    @apply px-2 py-3 border-b border-border;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  
+  .financial-table-mobile th {
+    @apply bg-muted font-medium text-muted-foreground sticky top-0 z-10;
+  }
+  
+  /* Mobile-specific card styles */
+  .mobile-card {
+    @apply border-0 shadow-none bg-card/50 backdrop-blur-sm;
+    border-radius: calc(var(--radius));
+    margin: 0 -1rem;
+    padding: 1rem;
+  }
+  
+  .mobile-card-header {
+    @apply p-3 pb-2;
+  }
+  
+  .mobile-card-content {
+    @apply p-3 pt-0;
+  }
+  
+  /* Performance indicators */
+  .performance-positive {
+    @apply text-green-600 dark:text-green-400;
+  }
+  
+  .performance-negative {
+    @apply text-red-600 dark:text-red-400;
+  }
+  
+  .performance-neutral {
+    @apply text-muted-foreground;
+  }
+  
+  /* Loading states for mobile */
+  .mobile-skeleton {
+    @apply animate-pulse bg-muted rounded;
+    background: linear-gradient(90deg, 
+      hsl(var(--muted)) 25%, 
+      hsl(var(--muted) / 0.5) 50%, 
+      hsl(var(--muted)) 75%
+    );
+    background-size: 200% 100%;
+    animation: mobile-skeleton-loading 1.5s infinite;
+  }
+  
+  @keyframes mobile-skeleton-loading {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+  
+  /* Mobile navigation optimizations */
+  .mobile-nav {
+    @apply fixed bottom-0 left-0 right-0 bg-background/95 backdrop-blur-md border-t border-border;
+    padding-bottom: var(--mobile-safe-area-bottom);
+    z-index: 50;
+  }
+  
+  .mobile-nav-item {
+    @apply flex flex-col items-center justify-center py-2 px-3 text-xs text-muted-foreground;
+    min-height: var(--mobile-touch-target);
+    transition: color 0.2s ease-in-out;
+  }
+  
+  .mobile-nav-item.active {
+    @apply text-primary;
+  }
+  
+  /* Responsive portfolio allocation styles */
+  .allocation-item-mobile {
+    @apply flex items-center justify-between py-2 px-3 border-b border-border last:border-b-0;
+  }
+  
+  .allocation-symbol {
+    @apply font-medium text-sm;
+  }
+  
+  .allocation-name {
+    @apply text-xs text-muted-foreground truncate max-w-[120px];
+  }
+  
+  .allocation-percentage {
+    @apply text-sm font-medium tabular-nums;
+  }
+  
+  /* Chart tooltip optimizations */
+  .chart-tooltip-mobile {
+    @apply bg-background/95 backdrop-blur-sm border border-border rounded-lg shadow-lg p-2 text-xs max-w-[200px];
+    transform: translateX(-50%);
+  }
+  
+  .chart-tooltip-desktop {
+    @apply bg-background border border-border rounded-lg shadow-lg p-3 text-sm;
+  }
+  
+  /* High-DPI optimizations */
+  @media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
+    .chart-container svg {
+      shape-rendering: crispEdges;
+    }
+    
+    .financial-table-mobile {
+      @apply text-[11px];
+    }
+  }
+  
+  /* Landscape orientation adjustments */
+  @media screen and (max-height: 500px) and (orientation: landscape) {
+    .chart-container-mobile {
+      height: calc(var(--chart-mobile-height) * 0.7);
+    }
+    
+    .mobile-card {
+      @apply py-2;
+    }
+    
+    .mobile-card-header {
+      @apply py-2;
+    }
+  }
+}
+
+/* Mobile-specific utilities */
+@layer utilities {
+  /* Touch-friendly spacing */
+  .touch-spacing-y > * + * {
+    margin-top: 1rem;
+  }
+  
+  .touch-spacing-x > * + * {
+    margin-left: 1rem;
+  }
+  
+  /* Mobile-optimized text sizing */
+  .text-mobile-xs { font-size: 10px; line-height: 14px; }
+  .text-mobile-sm { font-size: 12px; line-height: 16px; }
+  .text-mobile-base { font-size: 14px; line-height: 20px; }
+  .text-mobile-lg { font-size: 16px; line-height: 24px; }
+  .text-mobile-xl { font-size: 18px; line-height: 28px; }
+  
+  /* Safe area utilities */
+  .pt-safe { padding-top: var(--mobile-safe-area-top); }
+  .pb-safe { padding-bottom: var(--mobile-safe-area-bottom); }
+  .pl-safe { padding-left: var(--mobile-safe-area-left); }
+  .pr-safe { padding-right: var(--mobile-safe-area-right); }
+  
+  /* Chart-specific utilities */
+  .chart-height-mobile { height: var(--chart-mobile-height); }
+  .chart-height-tablet { height: var(--chart-tablet-height); }
+  .chart-height-desktop { height: var(--chart-desktop-height); }
+  
+  /* Performance color utilities */
+  .perf-positive { @apply performance-positive; }
+  .perf-negative { @apply performance-negative; }
+  .perf-neutral { @apply performance-neutral; }
+  
+  /* Mobile scroll containers */
+  .mobile-scroll-x {
+    @apply overflow-x-auto mobile-scroll;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  
+  .mobile-scroll-x::-webkit-scrollbar {
+    display: none;
+  }
+  
+  .mobile-scroll-y {
+    @apply overflow-y-auto mobile-scroll;
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--muted)) transparent;
+  }
+  
+  /* Touch-friendly form elements */
+  .mobile-input {
+    @apply min-h-[44px] text-base;
+    -webkit-appearance: none;
+    border-radius: calc(var(--radius));
+  }
+  
+  .mobile-select {
+    @apply min-h-[44px] text-base;
+    -webkit-appearance: none;
+    border-radius: calc(var(--radius));
+  }
+  
+  /* Animation utilities for mobile */
+  .mobile-fade-in {
+    animation: mobile-fade-in 0.3s ease-out;
+  }
+  
+  .mobile-slide-up {
+    animation: mobile-slide-up 0.3s ease-out;
+  }
+  
+  .mobile-scale-in {
+    animation: mobile-scale-in 0.2s ease-out;
+  }
+  
+  @keyframes mobile-fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  
+  @keyframes mobile-slide-up {
+    from { 
+      opacity: 0;
+      transform: translateY(20px);
+    }
+    to { 
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  
+  @keyframes mobile-scale-in {
+    from { 
+      opacity: 0;
+      transform: scale(0.95);
+    }
+    to { 
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+}
+
+/* Dark mode mobile optimizations */
+@media (prefers-color-scheme: dark) {
+  .chart-container {
+    @apply bg-card/50;
+  }
+  
+  .mobile-card {
+    @apply bg-card/30;
+  }
+}
+
+/* Print styles for mobile reports */
+@media print {
+  body {
+    padding: 0 !important;
+    -webkit-print-color-adjust: exact;
+    color-adjust: exact;
+  }
+  
+  .chart-container {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  
+  .mobile-nav,
+  .mobile-card-header button,
+  .no-print {
+    display: none !important;
+  }
+  
+  .financial-table-mobile {
+    @apply text-xs;
+  }
+  
+  .performance-positive,
+  .performance-negative {
+    @apply text-foreground;
+  }
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .chart-container {
+    @apply border-2 border-foreground;
+  }
+  
+  .performance-positive {
+    @apply text-green-800 dark:text-green-200;
+  }
+  
+  .performance-negative {
+    @apply text-red-800 dark:text-red-200;
+  }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .mobile-fade-in,
+  .mobile-slide-up,
+  .mobile-scale-in,
+  .mobile-skeleton {
+    animation: none;
+  }
+  
+  .chart-container {
+    transition: none;
+  }
+  
+  html {
+    scroll-behavior: auto;
   }
 }

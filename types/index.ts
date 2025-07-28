@@ -2,14 +2,14 @@ import type { User, Portfolio, PortfolioHolding, Backtest, PerformanceMetrics, S
 
 export interface PortfolioWithHoldings extends Portfolio {
   holdings: PortfolioHolding[]
-  user: Pick<User, 'id' | 'name' | 'email'>
+  user: Pick<User, 'id' | 'email'> & { name?: string | null }
 }
 
 export interface BacktestWithDetails extends Backtest {
   portfolio: PortfolioWithHoldings
   strategy: Strategy
   metrics?: PerformanceMetrics
-  user: Pick<User, 'id' | 'name' | 'email'>
+  user: Pick<User, 'id' | 'email'> & { name?: string | null }
 }
 
 export interface MarketDataPoint {

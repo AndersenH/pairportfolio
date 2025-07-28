@@ -95,6 +95,7 @@ export interface BacktestResults {
   metrics: PerformanceMetrics;
   drawdown: number[];
   benchmarkComparison?: BenchmarkComparison;
+  assetPrices?: Record<string, number[]>; // Individual asset price data for enhanced calculations
 }
 
 export interface PriceMatrix {
