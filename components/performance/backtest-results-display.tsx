@@ -11,7 +11,9 @@ import {
   TrendingDown,
   BarChart3,
   LineChart as LineChartIcon,
-  PieChart
+  PieChart,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import {
   LineChart,
@@ -35,6 +37,7 @@ interface BacktestResultsDisplayProps {
   portfolioAllocation: Record<string, number>;
   className?: string;
   preCalculatedAssetPerformance?: any[]; // Pre-calculated asset performance data
+  benchmarkSymbol?: string; // Benchmark symbol for display
 }
 
 interface ChartDataPoint {
@@ -53,8 +56,18 @@ export function BacktestResultsDisplay({
   results, 
   portfolioAllocation, 
   className,
-  preCalculatedAssetPerformance = []
+  preCalculatedAssetPerformance = [],
+  benchmarkSymbol
 }: BacktestResultsDisplayProps) {
+  const [showBenchmark, setShowBenchmark] = React.useState(true);
+  
+  // Extract benchmark symbol from results or use prop, defaulting to 'SPY'
+  const actualBenchmarkSymbol = results.benchmarkComparison?.benchmarkSymbol || benchmarkSymbol || 'SPY';
+  
+  // Check if we have valid benchmark data
+  const hasBenchmarkData = !!(results.benchmarkComparison && 
+    typeof results.benchmarkComparison.benchmarkReturn === 'number' &&
+    !isNaN(results.benchmarkComparison.benchmarkReturn));
   
   // Format chart data
   const formatChartData = (): ChartDataPoint[] => {
@@ -204,6 +217,79 @@ export function BacktestResultsDisplay({
         </Card>
       </div>
 
+      {/* Benchmark Comparison Section - only show if benchmark data exists */}
+      {hasBenchmarkData && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle className="flex items-center space-x-2">
+                <BarChart3 className="h-5 w-5" />
+                <span>Benchmark Comparison ({actualBenchmarkSymbol})</span>
+              </CardTitle>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowBenchmark(!showBenchmark)}
+                className="flex items-center space-x-2"
+              >
+                {showBenchmark ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                <span>{showBenchmark ? 'Hide' : 'Show'} in Charts</span>
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="bg-gray-50 p-4 rounded-lg text-center">
+                <div className="text-sm font-medium text-gray-600 mb-1">Benchmark Return</div>
+                <div className={`text-xl font-bold ${results.benchmarkComparison.benchmarkReturn >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                  {(results.benchmarkComparison.benchmarkReturn * 100).toFixed(2)}%
+                </div>
+                <div className="text-xs text-gray-500 mt-1">Total Period</div>
+              </div>
+              <div className="bg-gray-50 p-4 rounded-lg text-center">
+                <div className="text-sm font-medium text-gray-600 mb-1">Alpha</div>
+                <div className={`text-xl font-bold ${results.benchmarkComparison.alpha >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                  {(results.benchmarkComparison.alpha * 100).toFixed(2)}%
+                </div>
+                <div className="text-xs text-gray-500 mt-1">vs {actualBenchmarkSymbol}</div>
+              </div>
+              <div className="bg-gray-50 p-4 rounded-lg text-center">
+                <div className="text-sm font-medium text-gray-600 mb-1">Beta</div>
+                <div className="text-xl font-bold text-gray-700">
+                  {results.benchmarkComparison.beta.toFixed(2)}
+                </div>
+                <div className="text-xs text-gray-500 mt-1">Market Sensitivity</div>
+              </div>
+              <div className="bg-gray-50 p-4 rounded-lg text-center">
+                <div className="text-sm font-medium text-gray-600 mb-1">Correlation</div>
+                <div className="text-xl font-bold text-gray-700">
+                  {(results.benchmarkComparison.correlation * 100).toFixed(1)}%
+                </div>
+                <div className="text-xs text-gray-500 mt-1">Price Movement</div>
+              </div>
+            </div>
+            
+            {/* Additional benchmark metrics */}
+            <div className="mt-4 pt-4 border-t">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Benchmark Volatility:</span>
+                  <span className="font-medium">{(results.benchmarkComparison.benchmarkVolatility * 100).toFixed(2)}%</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Benchmark Sharpe:</span>
+                  <span className="font-medium">{results.benchmarkComparison.benchmarkSharpe.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Tracking Error:</span>
+                  <span className="font-medium">{(results.benchmarkComparison.trackingError * 100).toFixed(2)}%</span>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Main Content Tabs */}
       <Tabs defaultValue="performance" className="w-full">
         <TabsList className="grid w-full grid-cols-4">
@@ -254,7 +340,7 @@ export function BacktestResultsDisplay({
                     <Tooltip 
                       formatter={(value: any, name: string) => [
                         name === 'value' ? `$${Number(value).toLocaleString()}` : value,
-                        name === 'value' ? 'Portfolio Value' : name
+                        name === 'value' ? 'Portfolio Value' : name === 'benchmark' ? actualBenchmarkSymbol : name
                       ]}
                     />
                     <Area
@@ -264,7 +350,7 @@ export function BacktestResultsDisplay({
                       fillOpacity={1}
                       fill="url(#colorValue)"
                     />
-                    {results.benchmarkComparison && (
+                    {hasBenchmarkData && showBenchmark && (
                       <Line
                         type="monotone"
                         dataKey="benchmark"
@@ -272,6 +358,7 @@ export function BacktestResultsDisplay({
                         strokeWidth={2}
                         strokeDasharray="5 5"
                         dot={false}
+                        name={actualBenchmarkSymbol}
                       />
                     )}
                   </AreaChart>
@@ -328,6 +415,7 @@ export function BacktestResultsDisplay({
             portfolioAllocation={portfolioAllocation}
             usePython={true}
             preCalculatedAssetPerformance={preCalculatedAssetPerformance}
+            benchmarkSymbol={actualBenchmarkSymbol}
           />
         </TabsContent>
 
@@ -396,6 +484,7 @@ export function BacktestResultsDisplay({
         <TabsContent value="metrics">
           <MetricsDisplay 
             metrics={results.metrics}
+            benchmarkSymbol={actualBenchmarkSymbol}
           />
         </TabsContent>
       </Tabs>

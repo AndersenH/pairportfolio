@@ -249,7 +249,8 @@ export default function DashboardPage() {
                 {mockPortfolioData.length > 0 ? (
                   <PerformanceChart
                     data={mockPortfolioData}
-                    benchmark={mockBenchmarkData}
+                    benchmark={mockBenchmarkData.length > 0 ? mockBenchmarkData : undefined}
+                    benchmarkSymbol={mockBenchmarkData.length > 0 ? "SPY" : undefined} // Only show benchmark if data exists
                     title=""
                     height={300}
                   />
@@ -259,6 +260,9 @@ export default function DashboardPage() {
                       <BarChart3 className="h-12 w-12 mx-auto mb-4 opacity-50" />
                       <p>No performance data available</p>
                       <p className="text-sm">Run a backtest to see portfolio performance</p>
+                      <p className="text-xs text-muted-foreground mt-2">
+                        Benchmark comparisons will be available after running backtests
+                      </p>
                     </div>
                   </div>
                 )}

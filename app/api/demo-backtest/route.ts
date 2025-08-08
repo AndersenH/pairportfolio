@@ -11,22 +11,25 @@ import {
 
 // Schema for strategy parameters
 const strategyParametersSchema = z.union([
+  // Momentum strategy (no topN required)
   z.object({
     lookbackPeriod: z.number().min(1).max(12),
     rebalanceFrequency: z.enum(['weekly', 'monthly', 'quarterly']),
-    topN: z.number().min(1).max(10),
   }),
+  // Relative strength strategy (topN required)
   z.object({
     lookbackPeriod: z.number().min(1).max(12),
     rebalanceFrequency: z.enum(['weekly', 'monthly', 'quarterly']),
     topN: z.number().min(1).max(5),
-    benchmarkSymbol: z.string().min(1).max(10),
+    benchmarkSymbol: z.string().max(10).optional().nullable(),
   }),
+  // Mean reversion strategy
   z.object({
     lookbackPeriod: z.number().min(1).max(6),
     rebalanceFrequency: z.enum(['weekly', 'monthly', 'quarterly']),
     zScoreThreshold: z.number().min(0.5).max(3.0),
   }),
+  // Risk parity strategy
   z.object({
     lookbackPeriod: z.number().min(3).max(12),
     rebalanceFrequency: z.enum(['weekly', 'monthly', 'quarterly']),
@@ -46,6 +49,7 @@ const demoBacktestSchema = z.object({
   startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Start date must be in YYYY-MM-DD format'),
   endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'End date must be in YYYY-MM-DD format'),
   initialCapital: z.number().min(1, 'Initial capital must be at least $1').max(1000000000).default(10000),
+  benchmarkSymbol: z.string().max(20).optional().nullable(),
   strategy: z.enum(['buy-hold', 'momentum', 'relative-strength', 'mean-reversion', 'risk-parity', 'tactical-allocation', 'rotation']).default('buy-hold'),
   strategyParameters: strategyParametersSchema,
 }).refine((data) => new Date(data.startDate) < new Date(data.endDate), {
@@ -82,9 +86,11 @@ export async function POST(request: NextRequest) {
       startDate: validatedData.startDate,
       endDate: validatedData.endDate,
       initialCapital: validatedData.initialCapital,
+      benchmarkSymbol: validatedData.benchmarkSymbol,
       parameters: {
-        ...transformParameters(validatedData.strategyParameters || {}, validatedData.strategy),
-        rebalanceFrequency: 'monthly' // Default rebalancing frequency
+        ...transformParameters(validatedData.strategyParameters || {}, validatedData.strategy, validatedData.benchmarkSymbol),
+        rebalanceFrequency: 'monthly', // Default rebalancing frequency
+        benchmark_symbol: validatedData.benchmarkSymbol // Pass benchmark to strategy parameters (null if none provided)
       },
       metadata: {
         request_id: `demo-${Date.now()}`,
@@ -220,7 +226,7 @@ export async function POST(request: NextRequest) {
 }
 
 // Transform strategy parameters to Python format
-function transformParameters(params: any, strategy: string): any {
+function transformParameters(params: any, strategy: string, benchmarkSymbol?: string | null): any {
   const transformed: any = {}
   
   // Common parameter mappings
@@ -241,6 +247,9 @@ function transformParameters(params: any, strategy: string): any {
   }
   if (params.targetVolatility !== undefined) {
     transformed.target_volatility = params.targetVolatility
+  }
+  if (params.positiveReturnsOnly !== undefined) {
+    transformed.positive_returns_only = params.positiveReturnsOnly
   }
   
   // Strategy-specific defaults
@@ -270,7 +279,7 @@ function transformParameters(params: any, strategy: string): any {
       return {
         lookback_period: transformed.lookback_period || 6,
         top_n: transformed.top_n || 2,
-        benchmark_symbol: transformed.benchmark_symbol || 'SPY',
+        benchmark_symbol: transformed.benchmark_symbol || benchmarkSymbol,
         rebalance_frequency: transformed.rebalance_frequency || 'monthly',
         ...transformed
       }

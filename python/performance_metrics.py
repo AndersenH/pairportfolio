@@ -133,11 +133,25 @@ class PerformanceMetricsCalculator:
         """Calculate comprehensive benchmark comparison metrics"""
         
         try:
+            # Validate inputs
+            if portfolio_returns is None or benchmark_returns is None:
+                logger.warning("Portfolio or benchmark returns are None")
+                return None
+                
+            if not benchmark_symbol or not benchmark_symbol.strip():
+                logger.warning("Invalid benchmark symbol provided")
+                return None
+            
             # Convert to pandas Series
             if not isinstance(portfolio_returns, pd.Series):
                 portfolio_returns = pd.Series(portfolio_returns)
             if not isinstance(benchmark_returns, pd.Series):
                 benchmark_returns = pd.Series(benchmark_returns)
+            
+            # Check for empty series
+            if portfolio_returns.empty or benchmark_returns.empty:
+                logger.warning(f"Empty returns series for benchmark comparison with {benchmark_symbol}")
+                return None
             
             # Align series to common dates
             portfolio_clean = portfolio_returns.dropna()
@@ -146,6 +160,12 @@ class PerformanceMetricsCalculator:
             # Get minimum length for alignment
             min_length = min(len(portfolio_clean), len(benchmark_clean))
             if min_length == 0:
+                logger.warning(f"No overlapping data points for benchmark comparison with {benchmark_symbol}")
+                return None
+            
+            # Need at least a few data points for meaningful calculations
+            if min_length < 10:
+                logger.warning(f"Insufficient data points ({min_length}) for reliable benchmark comparison with {benchmark_symbol}")
                 return None
             
             portfolio_aligned = portfolio_clean.iloc[-min_length:]
@@ -169,7 +189,7 @@ class PerformanceMetricsCalculator:
             up_capture, down_capture = self._calculate_capture_ratios(portfolio_aligned, benchmark_aligned)
             
             return BenchmarkComparison(
-                benchmark_symbol=benchmark_symbol,
+                benchmark_symbol=benchmark_symbol.strip(),
                 benchmark_total_return=self._round_to_decimal(benchmark_total_return),
                 benchmark_annualized_return=self._round_to_decimal(benchmark_annualized_return),
                 benchmark_volatility=self._round_to_decimal(benchmark_volatility),
@@ -185,7 +205,7 @@ class PerformanceMetricsCalculator:
             )
             
         except Exception as e:
-            logger.error(f"Error calculating benchmark comparison: {str(e)}")
+            logger.error(f"Error calculating benchmark comparison with {benchmark_symbol}: {str(e)}")
             return None
     
     # Basic return calculations

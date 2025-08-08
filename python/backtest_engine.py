@@ -89,16 +89,15 @@ class BuyHoldStrategy(StrategyBase):
         return weights
 
 class MomentumStrategy(StrategyBase):
-    """Momentum strategy with configurable lookback and top N selection"""
+    """Momentum strategy: rank assets by momentum and select top N"""
     
     def validate_parameters(self):
         self.lookback_period = self.parameters.get('lookback_period', 60)
-        self.top_n = self.parameters.get('top_n', 3)
+        self.top_n = self.parameters.get('top_n', None)  # None = all assets
+        self.positive_returns_only = self.parameters.get('positive_returns_only', False)
         
         if self.lookback_period <= 0:
             raise ValueError("lookback_period must be positive")
-        if self.top_n <= 0:
-            raise ValueError("top_n must be positive")
     
     def calculate_weights(
         self,
@@ -107,43 +106,68 @@ class MomentumStrategy(StrategyBase):
         dates: pd.DatetimeIndex,
         rebalancing_frequency: str
     ) -> pd.DataFrame:
-        """Calculate momentum-based weights"""
+        """Calculate momentum-based weights: rank assets by momentum and select top N"""
         weights = pd.DataFrame(index=dates, columns=prices.columns, dtype=float)
         weights.iloc[:] = 0.0
+        
+        # Get target allocations from parameters (original portfolio weights)
+        target_allocations = self.parameters.get('target_allocations', {})
+        
+        # If no target allocations provided, use equal weights
+        if not target_allocations:
+            equal_weight = 1.0 / len(prices.columns)
+            target_allocations = {symbol: equal_weight for symbol in prices.columns}
         
         # Get rebalancing dates
         rebalance_dates = self._get_rebalance_dates(dates, rebalancing_frequency)
         
-        # Special case: single asset always gets 100% allocation
-        if len(prices.columns) == 1:
-            weights.iloc[:, 0] = 1.0
-            return weights
-        
         for i, date in enumerate(dates):
             if i < self.lookback_period:
-                # Equal weight initially
-                equal_weight = 1.0 / len(prices.columns)
-                weights.iloc[i] = equal_weight
+                # Initially invested with target allocations
+                for symbol in prices.columns:
+                    weights.loc[date, symbol] = target_allocations.get(symbol, 0.0)
                 continue
             
             # Only rebalance on designated dates
             if date in rebalance_dates or i == self.lookback_period:
-                # Calculate momentum scores using compound returns
-                momentum_scores = []
+                # Calculate momentum (compound return) for each asset
+                asset_returns = {}
                 for symbol in prices.columns:
                     symbol_returns = returns[symbol].iloc[i-self.lookback_period:i]
-                    compound_return = (1 + symbol_returns).prod() - 1
-                    momentum_scores.append((symbol, compound_return))
+                    symbol_compound_return = (1 + symbol_returns).prod() - 1
+                    asset_returns[symbol] = symbol_compound_return
                 
-                # Sort by momentum score and select top N
+                # Filter and rank assets
+                momentum_scores = []
+                for symbol, ret in asset_returns.items():
+                    # Apply positive returns filter if enabled
+                    if self.positive_returns_only and ret <= 0:
+                        continue
+                    momentum_scores.append((symbol, ret))
+                
+                # Sort by momentum (descending)
                 momentum_scores.sort(key=lambda x: x[1], reverse=True)
-                top_assets = momentum_scores[:min(self.top_n, len(momentum_scores))]
                 
-                # Equal weight among top assets
-                weight_per_asset = 1.0 / len(top_assets)
-                weights.iloc[i] = 0.0
-                for symbol, _ in top_assets:
-                    weights.loc[date, symbol] = weight_per_asset
+                # Select top N assets (or all if top_n is None)
+                if self.top_n is not None:
+                    selected_assets = momentum_scores[:min(self.top_n, len(momentum_scores))]
+                else:
+                    selected_assets = momentum_scores
+                
+                # Allocate weights
+                if selected_assets:
+                    # Calculate total allocation for selected assets
+                    total_selected_allocation = sum(target_allocations.get(s[0], equal_weight) 
+                                                  for s in selected_assets)
+                    
+                    # Normalize weights to sum to 1.0
+                    weights.iloc[i] = 0.0
+                    for symbol, _ in selected_assets:
+                        original_weight = target_allocations.get(symbol, equal_weight)
+                        weights.loc[date, symbol] = original_weight / total_selected_allocation
+                else:
+                    # No assets selected (all have negative returns with filter on)
+                    weights.iloc[i] = 0.0
             else:
                 # Keep previous weights
                 weights.iloc[i] = weights.iloc[i-1]
@@ -214,6 +238,7 @@ class RelativeStrengthStrategy(StrategyBase):
         self.lookback_period = self.parameters.get('lookback_period', 126)  # 6 months
         self.top_n = self.parameters.get('top_n', 2)
         self.benchmark_symbol = self.parameters.get('benchmark_symbol', 'SPY')
+        self.positive_returns_only = self.parameters.get('positive_returns_only', False)
     
     def calculate_weights(
         self,
@@ -249,6 +274,9 @@ class RelativeStrengthStrategy(StrategyBase):
                 # Calculate relative strength scores
                 rel_strength_scores = []
                 for symbol, symbol_ret in symbol_returns.items():
+                    # Apply positive returns filter if enabled
+                    if self.positive_returns_only and symbol_ret <= 0:
+                        continue
                     rel_strength = symbol_ret - avg_return
                     rel_strength_scores.append((symbol, rel_strength))
                 
@@ -256,11 +284,16 @@ class RelativeStrengthStrategy(StrategyBase):
                 rel_strength_scores.sort(key=lambda x: x[1], reverse=True)
                 top_assets = rel_strength_scores[:min(self.top_n, len(rel_strength_scores))]
                 
-                # Equal weight among top assets
-                weight_per_asset = 1.0 / len(top_assets)
-                weights.iloc[i] = 0.0
-                for symbol, _ in top_assets:
-                    weights.loc[date, symbol] = weight_per_asset
+                # Allocate weights
+                if top_assets:
+                    # Equal weight among top assets
+                    weight_per_asset = 1.0 / len(top_assets)
+                    weights.iloc[i] = 0.0
+                    for symbol, _ in top_assets:
+                        weights.loc[date, symbol] = weight_per_asset
+                else:
+                    # No assets selected (all have negative returns with filter on)
+                    weights.iloc[i] = 0.0
             else:
                 weights.iloc[i] = weights.iloc[i-1]
         
@@ -481,8 +514,8 @@ class BacktestEngine:
             strategy_type = config.strategy.get('type', 'buy_hold')
             strategy_params = config.strategy.get('parameters', {})
             
-            # Add target allocations for buy_hold strategy
-            if strategy_type == 'buy_hold':
+            # Add target allocations for strategies that need them
+            if strategy_type in ['buy_hold', 'momentum']:
                 strategy_params['target_allocations'] = target_allocations
             
             if strategy_type not in self.strategies:

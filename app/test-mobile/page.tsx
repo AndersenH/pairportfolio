@@ -108,7 +108,7 @@ export default function TestMobilePage() {
               <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
                 <h3 className="font-semibold text-purple-800 mb-2">💻 Desktop Only</h3>
                 <p className="text-sm text-purple-600">
-                  This content only appears on desktop (>1024px)
+                  This content only appears on desktop (&gt;1024px)
                 </p>
                 <div className="mt-2 p-2 bg-purple-100 rounded text-xs">
                   Three column layout
@@ -182,7 +182,7 @@ export default function TestMobilePage() {
             <li>• <strong>Mobile:</strong> Open Chrome DevTools and use device emulation</li>
             <li>• <strong>Touch Test:</strong> Try on an actual mobile device</li>
             <li>• <strong>Orientation:</strong> Rotate your mobile device to test orientation changes</li>
-            <li>• <strong>Breakpoints:</strong> Mobile ≤640px, Tablet 641-1024px, Desktop >1024px</li>
+            <li>• <strong>Breakpoints:</strong> Mobile ≤640px, Tablet 641-1024px, Desktop &gt;1024px</li>
           </ul>
         </div>
       </div>

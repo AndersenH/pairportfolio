@@ -1,6 +1,7 @@
 import { PrismaAdapter } from '@next-auth/prisma-adapter'
 import type { NextAuthOptions } from 'next-auth'
 import CredentialsProvider from 'next-auth/providers/credentials'
+import GoogleProvider from 'next-auth/providers/google'
 import { prisma } from './db'
 import { comparePasswords } from './utils'
 
@@ -13,7 +14,12 @@ export const authOptions: NextAuthOptions = {
     signIn: '/auth/signin',
     signUp: '/auth/signup',
   },
+  debug: process.env.NODE_ENV === 'development',
   providers: [
+    GoogleProvider({
+      clientId: process.env.GOOGLE_CLIENT_ID as string,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET as string,
+    }),
     CredentialsProvider({
       name: 'credentials',
       credentials: {
@@ -37,19 +43,18 @@ export const authOptions: NextAuthOptions = {
           },
         })
 
-        if (!user) {
+        if (!user || !user.password) {
           return null
         }
 
-        // Note: You'll need to implement password hashing/comparison
-        // const isPasswordValid = await comparePasswords(
-        //   credentials.password,
-        //   user.password
-        // )
+        const isPasswordValid = await comparePasswords(
+          credentials.password,
+          user.password
+        )
 
-        // if (!isPasswordValid) {
-        //   return null
-        // }
+        if (!isPasswordValid) {
+          return null
+        }
 
         return {
           id: user.id,
@@ -60,7 +65,7 @@ export const authOptions: NextAuthOptions = {
     }),
   ],
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user, account }) {
       if (user) {
         token.id = user.id
       }
@@ -71,6 +76,16 @@ export const authOptions: NextAuthOptions = {
         session.user.id = token.id as string
       }
       return session
+    },
+    async signIn({ user, account, profile, email, credentials }) {
+      // Allow all sign-ins
+      return true
+    },
+    async redirect({ url, baseUrl }) {
+      // Redirect to dashboard after successful sign in
+      if (url.startsWith('/')) return `${baseUrl}${url}`
+      else if (new URL(url).origin === baseUrl) return url
+      return `${baseUrl}/dashboard`
     },
   },
 }

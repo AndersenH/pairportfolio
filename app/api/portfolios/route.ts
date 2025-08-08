@@ -34,8 +34,7 @@ export const GET = withApiHandler(
           user: {
             select: {
               id: true,
-              firstName: true,
-              lastName: true,
+              name: true,
               email: true,
             },
           },

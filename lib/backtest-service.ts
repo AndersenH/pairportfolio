@@ -9,6 +9,7 @@ interface BacktestParams {
   startDate: string
   endDate: string
   initialCapital: number
+  benchmarkSymbol?: string
   rebalancingFrequency?: string
   parameters?: Record<string, any>
 }
@@ -100,6 +101,7 @@ export class BacktestService {
         startDate: startDate,
         endDate: endDate,
         initialCapital: params.initialCapital,
+        benchmarkSymbol: params.benchmarkSymbol,
         rebalancingFrequency: params.rebalancingFrequency || 'monthly',
         parameters: params.parameters || {},
         status: 'pending',

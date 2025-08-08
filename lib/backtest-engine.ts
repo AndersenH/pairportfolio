@@ -41,14 +41,15 @@ export class BacktestEngine {
       // Calculate returns
       const returns = this.calculateReturns(priceData.prices);
 
-      // Generate weights based on strategy
+      // Generate weights based on strategy (pass benchmark symbol for strategies that need it)
       const weights = this.calculateWeights(
         config.strategy,
         priceData.prices,
         returns,
         targetAllocations,
         config.rebalancingFrequency,
-        priceData.dates
+        priceData.dates,
+        config.benchmarkSymbol
       );
 
       // Calculate portfolio performance
@@ -61,12 +62,13 @@ export class BacktestEngine {
       // Calculate performance metrics
       const metrics = PerformanceMetricsCalculator.calculateMetrics(portfolioReturns, drawdown);
 
-      // Get benchmark comparison (S&P 500)
-      const benchmarkComparison = await this.getBenchmarkComparison(
+      // Get benchmark comparison using selected benchmark (skip if no benchmark provided)
+      const benchmarkComparison = config.benchmarkSymbol ? await this.getBenchmarkComparison(
         config.startDate, 
         config.endDate, 
-        portfolioReturns
-      );
+        portfolioReturns,
+        config.benchmarkSymbol
+      ) : undefined;
 
       return {
         portfolioValues,
@@ -213,7 +215,8 @@ export class BacktestEngine {
     returns: PriceMatrix,
     targetAllocations: Record<string, number>,
     rebalancingFrequency: RebalancingFrequency,
-    dates: Date[]
+    dates: Date[],
+    benchmarkSymbol?: string | null
   ): WeightMatrix {
     switch (strategy.type) {
       case 'buy_hold':
@@ -221,7 +224,7 @@ export class BacktestEngine {
       case 'momentum':
         return this.momentumWeights(prices, returns, strategy.parameters, rebalancingFrequency, dates);
       case 'relative_strength':
-        return this.relativeStrengthWeights(prices, returns, strategy.parameters, rebalancingFrequency, dates);
+        return this.relativeStrengthWeights(prices, returns, strategy.parameters, rebalancingFrequency, dates, benchmarkSymbol);
       case 'mean_reversion':
         return this.meanReversionWeights(prices, returns, strategy.parameters, rebalancingFrequency, dates);
       case 'risk_parity':
@@ -335,11 +338,13 @@ export class BacktestEngine {
     returns: PriceMatrix,
     parameters: any,
     rebalancingFrequency: RebalancingFrequency,
-    dates: Date[]
+    dates: Date[],
+    benchmarkSymbol?: string | null
   ): WeightMatrix {
     const lookbackPeriod = parameters.lookback_period || 126; // 6 months default
     const topN = parameters.top_n || 2;
-    const benchmarkSymbol = parameters.benchmark_symbol || 'SPY';
+    // Use strategy parameter or passed benchmark symbol (null if none provided)
+    const benchmark = parameters.benchmark_symbol || benchmarkSymbol;
     const symbols = Object.keys(prices);
     const numPeriods = symbols.length > 0 ? prices[symbols[0]].length : 0;
     const weights: WeightMatrix = {};
@@ -696,42 +701,44 @@ export class BacktestEngine {
   }
 
   /**
-   * Get benchmark comparison (S&P 500)
+   * Get benchmark comparison
    */
   private async getBenchmarkComparison(
     startDate: Date,
     endDate: Date,
-    portfolioReturns: number[]
+    portfolioReturns: number[],
+    benchmarkSymbol: string
   ) {
     try {
-      // Fetch SPY data as S&P 500 proxy
-      const spyData = await this.dataService.getHistoricalData('SPY', startDate, endDate);
+      // Fetch benchmark data
+      const benchmarkData = await this.dataService.getHistoricalData(benchmarkSymbol, startDate, endDate);
       
-      if (!spyData || spyData.length === 0) {
+      if (!benchmarkData || benchmarkData.length === 0) {
+        console.warn(`No benchmark data available for ${benchmarkSymbol}`);
         return undefined;
       }
 
-      // Calculate SPY returns
-      const spyPrices = spyData.map(d => d.adj_close || d.close).filter(p => p !== null && p > 0) as number[];
+      // Calculate benchmark returns
+      const benchmarkPrices = benchmarkData.map(d => d.adj_close || d.close).filter(p => p !== null && p > 0) as number[];
       
-      if (spyPrices.length < 2) {
+      if (benchmarkPrices.length < 2) {
         return undefined;
       }
       
-      const spyReturns: number[] = [0]; // First return is zero
+      const benchmarkReturns: number[] = [0]; // First return is zero
       
-      for (let i = 1; i < spyPrices.length; i++) {
-        if (spyPrices[i - 1] > 0) {
-          spyReturns.push((spyPrices[i] - spyPrices[i - 1]) / spyPrices[i - 1]);
+      for (let i = 1; i < benchmarkPrices.length; i++) {
+        if (benchmarkPrices[i - 1] > 0) {
+          benchmarkReturns.push((benchmarkPrices[i] - benchmarkPrices[i - 1]) / benchmarkPrices[i - 1]);
         } else {
-          spyReturns.push(0);
+          benchmarkReturns.push(0);
         }
       }
 
       // Use the shorter of the two series for comparison
-      const minLength = Math.min(portfolioReturns.length, spyReturns.length);
+      const minLength = Math.min(portfolioReturns.length, benchmarkReturns.length);
       const portfolioAligned = portfolioReturns.slice(-minLength);
-      const spyAligned = spyReturns.slice(-minLength);
+      const benchmarkAligned = benchmarkReturns.slice(-minLength);
 
       if (minLength < 2) {
         return undefined;
@@ -739,12 +746,12 @@ export class BacktestEngine {
 
       return PerformanceMetricsCalculator.calculateBenchmarkComparison(
         portfolioAligned,
-        spyAligned,
-        'SPY'
+        benchmarkAligned,
+        benchmarkSymbol
       );
 
     } catch (error) {
-      console.warn('Failed to calculate benchmark comparison:', error);
+      console.warn(`Failed to calculate benchmark comparison with ${benchmarkSymbol}:`, error);
       return undefined;
     }
   }

@@ -24,6 +24,7 @@ interface AssetPerformanceMetrics {
   maxDrawdown: number;
   contribution: number;
   allocation: number;
+  percentageTimeInvested?: number; // Percentage of time actually invested (weight > 0) vs in cash
 }
 
 interface AssetPerformanceResult {

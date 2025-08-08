@@ -2,10 +2,23 @@ import { NextRequest, NextResponse } from 'next/server';
 import { runPythonWithData } from '@/lib/python-runner';
 import { z } from 'zod';
 
+// Helper function to calculate default dates: 5-year window ending today (July 28, 2025)
+function getDefaultDates() {
+  const today = new Date('2025-07-28');
+  const fiveYearsAgo = new Date(today);
+  fiveYearsAgo.setFullYear(today.getFullYear() - 5);
+  
+  return {
+    start: fiveYearsAgo.toISOString().split('T')[0],
+    end: today.toISOString().split('T')[0]
+  };
+}
+
 // Strategy-specific parameter schemas
 const momentumParametersSchema = z.object({
   lookback_period: z.number().int().min(1).max(500).optional(),
-  top_n: z.number().int().min(1).max(20).optional()
+  top_n: z.number().int().min(1).max(20).optional(),
+  positive_returns_only: z.boolean().optional()
 });
 
 const meanReversionParametersSchema = z.object({
@@ -16,7 +29,8 @@ const meanReversionParametersSchema = z.object({
 const relativeStrengthParametersSchema = z.object({
   lookback_period: z.number().int().min(1).max(500).optional(),
   top_n: z.number().int().min(1).max(20).optional(),
-  benchmark_symbol: z.string().optional()
+  benchmark_symbol: z.string().optional(),
+  positive_returns_only: z.boolean().optional()
 });
 
 const riskParityParametersSchema = z.object({
@@ -200,8 +214,8 @@ export async function POST(request: NextRequest) {
                 { symbol: 'GOOGL', allocation: 0.5 }
               ]
             },
-            start_date: '2023-01-01',
-            end_date: '2023-12-31',
+            start_date: getDefaultDates().start,
+            end_date: getDefaultDates().end,
             initial_capital: 10000,
             rebalancing_frequency: 'monthly'
           }

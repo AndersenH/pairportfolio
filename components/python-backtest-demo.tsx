@@ -20,6 +20,20 @@ import { BacktestResultsDisplay } from './performance/backtest-results-display';
 export function PythonBacktestDemo() {
   const { runBacktest, loading, error, result } = usePythonBacktest();
   const [useApi, setUseApi] = useState(false);
+  
+  // Calculate default dates: 5-year window ending today (July 28, 2025)
+  const getDefaultDates = () => {
+    const today = new Date('2025-07-28')
+    const fiveYearsAgo = new Date(today)
+    fiveYearsAgo.setFullYear(today.getFullYear() - 5)
+    
+    return {
+      start: fiveYearsAgo.toISOString().split('T')[0],
+      end: today.toISOString().split('T')[0]
+    }
+  }
+  
+  const defaultDates = getDefaultDates()
 
   const runSimpleBacktest = async () => {
     if (useApi) {
@@ -30,8 +44,8 @@ export function PythonBacktestDemo() {
           { symbol: 'SPY', allocation: 0.6 },
           { symbol: 'BND', allocation: 0.4 },
         ],
-        start_date: '2022-01-01',
-        end_date: '2023-12-31',
+        start_date: defaultDates.start,
+        end_date: defaultDates.end,
         initial_capital: 10000,
       });
     } else {
@@ -45,8 +59,8 @@ export function PythonBacktestDemo() {
             { symbol: 'SPY', allocation: 0.6 },
             { symbol: 'BND', allocation: 0.4 },
           ],
-          start_date: '2022-01-01',
-          end_date: '2023-12-31',
+          start_date: defaultDates.start,
+          end_date: defaultDates.end,
         }),
       });
       const data = await response.json();
@@ -64,8 +78,8 @@ export function PythonBacktestDemo() {
         { symbol: 'EFA', allocation: 0.2 },
         { symbol: 'EEM', allocation: 0.2 },
       ],
-      start_date: '2021-01-01',
-      end_date: '2023-12-31',
+      start_date: defaultDates.start,
+      end_date: defaultDates.end,
       initial_capital: 100000,
       parameters: {
         lookback_period: 60,
@@ -143,7 +157,17 @@ export function PythonBacktestDemo() {
                   profitFactor: result.metrics?.profit_factor || 0,
                 },
                 drawdown: result.drawdown || [],
-                assetPrices: result.asset_prices || null
+                assetPrices: result.asset_prices || null,
+                benchmarkComparison: result.benchmark_comparison ? {
+                  benchmarkSymbol: result.benchmark_comparison.benchmark_symbol || 'SPY',
+                  benchmarkReturn: result.benchmark_comparison.benchmark_return || 0,
+                  benchmarkVolatility: result.benchmark_comparison.benchmark_volatility || 0,
+                  benchmarkSharpe: result.benchmark_comparison.benchmark_sharpe || 0,
+                  beta: result.benchmark_comparison.beta || 0,
+                  alpha: result.benchmark_comparison.alpha || 0,
+                  correlation: result.benchmark_comparison.correlation || 0,
+                  trackingError: result.benchmark_comparison.tracking_error || 0,
+                } : undefined
               }}
               portfolioAllocation={{
                 'SPY': 0.6,
@@ -152,6 +176,7 @@ export function PythonBacktestDemo() {
                   (result.holdings || []).map((h: any) => [h.symbol, h.allocation])
                 )
               }}
+              benchmarkSymbol={result.benchmark_comparison?.benchmark_symbol || 'SPY'}
               preCalculatedAssetPerformance={result.asset_performance || []} // Pass pre-calculated asset performance
             />
           )}

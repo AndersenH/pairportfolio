@@ -8,6 +8,7 @@ import type { PerformanceMetrics } from '@prisma/client'
 
 interface MetricsDisplayProps {
   metrics: PerformanceMetrics
+  benchmarkSymbol?: string
   className?: string
 }
 
@@ -78,7 +79,11 @@ function MetricCard({ title, value, subtitle, trend, format = 'number' }: Metric
   )
 }
 
-export function MetricsDisplay({ metrics, className }: MetricsDisplayProps) {
+export function MetricsDisplay({ metrics, benchmarkSymbol = 'SPY', className }: MetricsDisplayProps) {
+  // Check if we have valid benchmark-related metrics
+  const hasBenchmarkMetrics = !!(benchmarkSymbol && 
+    (metrics.alpha !== null || metrics.beta !== null));
+
   const getReturnTrend = (value: number) => {
     if (value > 0) return 'up'
     if (value < 0) return 'down'
@@ -97,7 +102,14 @@ export function MetricsDisplay({ metrics, className }: MetricsDisplayProps) {
   return (
     <div className={className}>
       <div className="flex items-center justify-between mb-6">
-        <h3 className="text-lg font-semibold">Performance Metrics</h3>
+        <div className="flex items-center gap-3">
+          <h3 className="text-lg font-semibold">Performance Metrics</h3>
+          {hasBenchmarkMetrics && (
+            <Badge variant="outline" className="text-xs">
+              vs {benchmarkSymbol}
+            </Badge>
+          )}
+        </div>
         <Badge variant={riskAssessment.variant}>
           Risk-Adjusted Return: {riskAssessment.text}
         </Badge>
@@ -142,22 +154,22 @@ export function MetricsDisplay({ metrics, className }: MetricsDisplayProps) {
           subtitle="Largest peak-to-trough decline"
         />
         
-        {metrics.alpha !== null && (
+        {metrics.alpha !== null && benchmarkSymbol && (
           <MetricCard
             title="Alpha"
             value={metrics.alpha}
             format="percentage"
             trend={getReturnTrend(metrics.alpha)}
-            subtitle="Excess return vs benchmark"
+            subtitle={`Excess return vs ${benchmarkSymbol}`}
           />
         )}
         
-        {metrics.beta !== null && (
+        {metrics.beta !== null && benchmarkSymbol && (
           <MetricCard
             title="Beta"
             value={metrics.beta}
             format="ratio"
-            subtitle="Market sensitivity"
+            subtitle={`Sensitivity to ${benchmarkSymbol}`}
           />
         )}
         

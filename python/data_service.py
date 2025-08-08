@@ -485,10 +485,14 @@ if __name__ == "__main__":
     # Test the data service
     data_service = DataService()
     
-    # Test single symbol
+    # Test single symbol with 5-year window ending July 28, 2025
+    from datetime import datetime, timedelta
+    
     symbol = "AAPL"
-    start_date = "2023-01-01"
-    end_date = "2023-12-31"
+    today = datetime(2025, 7, 28)
+    five_years_ago = today - timedelta(days=5*365)
+    start_date = five_years_ago.strftime('%Y-%m-%d')
+    end_date = today.strftime('%Y-%m-%d')
     
     print(f"Testing data fetch for {symbol}")
     data = data_service.get_historical_data(symbol, start_date, end_date)

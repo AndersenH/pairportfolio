@@ -115,15 +115,30 @@ class BenchmarkService:
     ) -> Optional[BenchmarkComparison]:
         """Compare portfolio to a single benchmark"""
         
+        # Validate inputs
+        if not benchmark_symbol or not benchmark_symbol.strip():
+            logger.warning("Invalid benchmark symbol provided")
+            return None
+            
+        if portfolio_returns is None:
+            logger.warning("No portfolio returns provided for benchmark comparison")
+            return None
+        
         # Get benchmark data
-        benchmark_data = self.get_benchmark_data(benchmark_symbol, start_date, end_date)
+        benchmark_data = self.get_benchmark_data(benchmark_symbol.strip(), start_date, end_date)
         
         if benchmark_data is None:
+            logger.warning(f"Could not retrieve benchmark data for {benchmark_symbol}")
             return None
         
         # Convert portfolio returns to pandas Series if needed
         if not isinstance(portfolio_returns, pd.Series):
             portfolio_returns = pd.Series(portfolio_returns)
+        
+        # Validate portfolio returns
+        if portfolio_returns.empty:
+            logger.warning("Portfolio returns are empty")
+            return None
         
         # Align the data
         portfolio_clean = portfolio_returns.dropna()
@@ -132,15 +147,26 @@ class BenchmarkService:
         # Use the shorter series for comparison
         min_length = min(len(portfolio_clean), len(benchmark_clean))
         if min_length == 0:
+            logger.warning(f"No overlapping data points between portfolio and benchmark {benchmark_symbol}")
             return None
         
         portfolio_aligned = portfolio_clean.iloc[-min_length:]
         benchmark_aligned = benchmark_clean.iloc[-min_length:]
         
         # Calculate comparison metrics
-        return self.metrics_calculator.calculate_benchmark_comparison(
-            portfolio_aligned, benchmark_aligned, benchmark_symbol
-        )
+        try:
+            comparison_result = self.metrics_calculator.calculate_benchmark_comparison(
+                portfolio_aligned, benchmark_aligned, benchmark_symbol
+            )
+            
+            if comparison_result is None:
+                logger.warning(f"Failed to calculate benchmark comparison metrics for {benchmark_symbol}")
+                
+            return comparison_result
+            
+        except Exception as e:
+            logger.error(f"Error in benchmark comparison calculation for {benchmark_symbol}: {str(e)}")
+            return None
     
     def compare_to_multiple_benchmarks(
         self,
@@ -152,6 +178,15 @@ class BenchmarkService:
     ) -> Optional[MultipleComparison]:
         """Compare portfolio to multiple benchmarks"""
         
+        # Validate inputs
+        if not benchmark_symbols or len(benchmark_symbols) == 0:
+            logger.warning("No benchmark symbols provided for comparison")
+            return None
+            
+        if portfolio_returns is None:
+            logger.warning("No portfolio returns provided for multiple benchmark comparison")
+            return None
+        
         comparisons = []
         benchmark_returns_dict = {}
         
@@ -159,10 +194,20 @@ class BenchmarkService:
         if not isinstance(portfolio_returns, pd.Series):
             portfolio_returns = pd.Series(portfolio_returns)
         
+        if portfolio_returns.empty:
+            logger.warning("Portfolio returns are empty for multiple benchmark comparison")
+            return None
+        
         portfolio_metrics = self.metrics_calculator.calculate_metrics(portfolio_returns).__dict__
         
-        # Compare to each benchmark
-        for symbol in benchmark_symbols:
+        # Compare to each benchmark (filter out empty/null symbols)
+        valid_symbols = [s for s in benchmark_symbols if s and s.strip()]
+        
+        if not valid_symbols:
+            logger.warning("No valid benchmark symbols found after filtering")
+            return None
+        
+        for symbol in valid_symbols:
             comparison = self.compare_to_benchmark(
                 portfolio_returns, symbol, start_date, end_date
             )
@@ -177,6 +222,7 @@ class BenchmarkService:
                         benchmark_returns_dict[symbol] = benchmark_data.returns
         
         if not comparisons:
+            logger.warning("No successful benchmark comparisons could be calculated")
             return None
         
         # Calculate relative rankings

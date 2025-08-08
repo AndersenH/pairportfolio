@@ -83,6 +83,7 @@ class MomentumConfig(BaseStrategyConfig):
     description: str = "Momentum-based strategy selecting top performing assets"
     lookback_period: int = 60
     top_n: int = 3
+    positive_returns_only: bool = False
     
     def validate(self) -> bool:
         """Validate momentum configuration"""
@@ -109,7 +110,8 @@ class MomentumConfig(BaseStrategyConfig):
             'description': self.description,
             'parameters': {
                 'lookback_period': self.lookback_period,
-                'top_n': self.top_n
+                'top_n': self.top_n,
+                'positive_returns_only': self.positive_returns_only
             }
         }
     
@@ -120,17 +122,19 @@ class MomentumConfig(BaseStrategyConfig):
             name=data.get('name', 'Momentum'),
             description=data.get('description', 'Momentum-based strategy selecting top performing assets'),
             lookback_period=params.get('lookback_period', 60),
-            top_n=params.get('top_n', 3)
+            top_n=params.get('top_n', 3),
+            positive_returns_only=params.get('positive_returns_only', False)
         )
 
 @dataclass
 class RelativeStrengthConfig(BaseStrategyConfig):
     """Relative strength strategy configuration"""
     name: str = "Relative Strength"
-    description: str = "Relative strength strategy vs benchmark"
+    description: str = "Relative strength strategy vs benchmark or average"
     lookback_period: int = 126
     top_n: int = 2
-    benchmark_symbol: str = "SPY"
+    benchmark_symbol: Optional[str] = "SPY"
+    positive_returns_only: bool = False
     
     def validate(self) -> bool:
         """Validate relative strength configuration"""
@@ -142,9 +146,10 @@ class RelativeStrengthConfig(BaseStrategyConfig):
             logger.error(f"Invalid top_n: {self.top_n}")
             return False
         
-        if not self.benchmark_symbol:
-            logger.error("Benchmark symbol is required")
-            return False
+        # Benchmark symbol is optional - if not provided, will use average of other assets
+        if self.benchmark_symbol and not self.benchmark_symbol.strip():
+            logger.warning("Empty benchmark symbol provided, will use asset average instead")
+            self.benchmark_symbol = None
         
         return True
     
@@ -156,7 +161,8 @@ class RelativeStrengthConfig(BaseStrategyConfig):
             'parameters': {
                 'lookback_period': self.lookback_period,
                 'top_n': self.top_n,
-                'benchmark_symbol': self.benchmark_symbol
+                'benchmark_symbol': self.benchmark_symbol,
+                'positive_returns_only': self.positive_returns_only
             }
         }
     
@@ -165,10 +171,11 @@ class RelativeStrengthConfig(BaseStrategyConfig):
         params = data.get('parameters', {})
         return cls(
             name=data.get('name', 'Relative Strength'),
-            description=data.get('description', 'Relative strength strategy vs benchmark'),
+            description=data.get('description', 'Relative strength strategy vs benchmark or average'),
             lookback_period=params.get('lookback_period', 126),
             top_n=params.get('top_n', 2),
-            benchmark_symbol=params.get('benchmark_symbol', 'SPY')
+            benchmark_symbol=params.get('benchmark_symbol', 'SPY'),
+            positive_returns_only=params.get('positive_returns_only', False)
         )
 
 @dataclass

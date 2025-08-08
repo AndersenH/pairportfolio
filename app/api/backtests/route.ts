@@ -93,6 +93,7 @@ export const POST = withApiHandler(
         strategyId,
         userId: user.id,
         initialCapital: validatedData.initialCapital || 10000,
+        benchmarkSymbol: validatedData.benchmarkSymbol || null,
       })
 
       const response = createApiResponse(

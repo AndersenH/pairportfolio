@@ -23,11 +23,14 @@ interface PerformanceChartProps {
   data: ChartDataPoint[]
   title?: string
   benchmark?: ChartDataPoint[]
+  benchmarkSymbol?: string
   holdings?: Record<string, ChartDataPoint[]>
   showBenchmark?: boolean
   showHoldings?: boolean
   height?: number
   className?: string
+  strategy?: string
+  strategyParameters?: Record<string, any>
 }
 
 interface TooltipProps {
@@ -82,11 +85,14 @@ export function PerformanceChart({
   data,
   title = 'Portfolio Performance',
   benchmark,
+  benchmarkSymbol = 'SPY',
   holdings,
   showBenchmark = true,
   showHoldings = false,
   height = 400,
   className,
+  strategy = 'buy-hold',
+  strategyParameters = {},
 }: PerformanceChartProps) {
   const { isMobile, isTablet, height: viewportHeight, isTouch } = useMobileResponsive()
   const [chartType, setChartType] = React.useState<'line' | 'area'>('line')
@@ -137,14 +143,28 @@ export function PerformanceChart({
       if (holdings && showHoldings) {
         Object.entries(holdings).forEach(([symbol, holdingData]) => {
           if (holdingData[index]) {
-            combined[symbol] = holdingData[index].value
+            // For momentum strategy, use strategy-adjusted values
+            if (strategy === 'momentum' && holdingData[index].weight !== undefined) {
+              const weight = holdingData[index].weight || 0
+              const adjustedValue = holdingData[index].value // Already strategy-adjusted
+              const originalValue = holdingData[index].originalValue || adjustedValue
+              
+              // Use strategy-adjusted value for display
+              combined[symbol] = adjustedValue
+              combined[`${symbol}_weight`] = weight
+              combined[`${symbol}_invested`] = weight > 0 ? 1 : 0  // Binary indicator for momentum timing
+              combined[`${symbol}_original`] = originalValue // For tooltip reference
+            } else {
+              // Regular holdings display for other strategies
+              combined[symbol] = holdingData[index].value
+            }
           }
         })
       }
 
       return combined
     })
-  }, [data, benchmark, holdings, showBenchmark, showHoldings])
+  }, [data, benchmark, holdings, showBenchmark, showHoldings, strategy])
 
   // Calculate Y-axis domain based on visible data
   const yAxisDomain = React.useMemo(() => {
@@ -207,6 +227,79 @@ export function PerformanceChart({
     return colors[key as keyof typeof colors] || '#6b7280'
   }
 
+  // Helper function to get line style for momentum strategy
+  const getLineStyle = (symbol: string) => {
+    if (strategy === 'momentum') {
+      // For momentum strategy, we'll use custom rendering to show cash periods
+      return {
+        strokeDasharray: "none",
+        strokeWidth: getStrokeWidth('holding'),
+        opacity: 0.9
+      }
+    }
+    return {
+      strokeDasharray: "none",
+      strokeWidth: getStrokeWidth('holding'),
+      opacity: 0.8
+    }
+  }
+
+  // Custom tooltip content for momentum strategy
+  const CustomMomentumTooltip = ({ active, payload, label, isMobile }: TooltipProps & { isMobile?: boolean }) => {
+    if (active && payload && payload.length) {
+      const formattedDate = new Date(label || '').toLocaleDateString('en-US', { 
+        month: 'short', 
+        day: 'numeric', 
+        year: isMobile ? '2-digit' : 'numeric' 
+      })
+      
+      return (
+        <div className={`bg-background border rounded-lg shadow-lg ${isMobile ? 'p-2 max-w-[240px]' : 'p-3 max-w-[280px]'}`}>
+          <p className={`font-medium mb-2 ${isMobile ? 'text-xs' : 'text-sm'}`}>{formattedDate}</p>
+          {payload.map((entry, index) => {
+            // Check if this is a momentum strategy holding
+            const isMomentumHolding = strategy === 'momentum' && holdings && Object.keys(holdings).includes(entry.name || '')
+            const investedKey = `${entry.name}_invested`
+            const originalKey = `${entry.name}_original`
+            const isInvested = entry.payload && entry.payload[investedKey] === 1
+            const originalValue = entry.payload && entry.payload[originalKey]
+            
+            return (
+              <div key={index} className={`space-y-1 mb-2 ${isMobile ? 'text-xs' : 'text-sm'}`}>
+                <div className="flex items-center space-x-2">
+                  <div
+                    className="w-3 h-3 rounded flex-shrink-0"
+                    style={{ backgroundColor: entry.color }}
+                  />
+                  <span className="font-medium truncate">{entry.name}:</span>
+                  <span className="text-muted-foreground">
+                    {typeof entry.value === 'number' 
+                      ? `${((entry.value - 1) * 100).toFixed(isMobile ? 1 : 2)}%`
+                      : entry.value
+                    }
+                  </span>
+                  {isMomentumHolding && (
+                    <span className={`text-xs px-1 py-0.5 rounded ${
+                      isInvested ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'
+                    }`}>
+                      {isInvested ? 'Invested' : 'Cash'}
+                    </span>
+                  )}
+                </div>
+                {isMomentumHolding && originalValue && typeof originalValue === 'number' && !isInvested && (
+                  <div className="text-xs text-gray-500 ml-5">
+                    Asset return: {((originalValue - 1) * 100).toFixed(1)}% (not captured)
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )
+    }
+    return null
+  }
+
   // Calculate responsive dimensions
   const getChartHeight = () => {
     if (isMobile) {
@@ -267,7 +360,10 @@ export function PerformanceChart({
             axisLine={!isMobile}
           />
           <Tooltip 
-            content={<CustomTooltip isMobile={isMobile} />}
+            content={strategy === 'momentum' && showHoldings ? 
+              <CustomMomentumTooltip isMobile={isMobile} /> : 
+              <CustomTooltip isMobile={isMobile} />
+            }
             cursor={{ strokeWidth: isMobile ? 2 : 1 }}
             allowEscapeViewBox={{ x: true, y: true }}
             position={isMobile ? { x: 'auto', y: 'auto' } : undefined}
@@ -310,7 +406,7 @@ export function PerformanceChart({
                 fill={getColor('benchmark')}
                 fillOpacity={0.1}
                 strokeWidth={getStrokeWidth('secondary')}
-                name="Benchmark"
+                name={benchmarkSymbol}
                 activeDot={{ r: isMobile ? 5 : 3, strokeWidth: 2 }}
               />
             ) : (
@@ -320,7 +416,7 @@ export function PerformanceChart({
                 stroke={getColor('benchmark')}
                 strokeWidth={getStrokeWidth('secondary')}
                 dot={false}
-                name="Benchmark"
+                name={benchmarkSymbol}
                 strokeDasharray={isMobile ? "3 3" : "5 5"}
                 activeDot={{ r: isMobile ? 5 : 3, strokeWidth: 2 }}
               />
@@ -338,8 +434,10 @@ export function PerformanceChart({
                     dataKey={symbol}
                     stroke={getColor(symbol, index)}
                     fill={getColor(symbol, index)}
-                    fillOpacity={0.05}
-                    strokeWidth={getStrokeWidth('holding')}
+                    fillOpacity={strategy === 'momentum' ? 0.03 : 0.05}
+                    strokeWidth={strategy === 'momentum' ? getStrokeWidth('holding') + 1 : getStrokeWidth('holding')}
+                    strokeOpacity={strategy === 'momentum' ? 0.8 : 1}
+                    strokeDasharray="none" // Solid lines for strategy-adjusted performance
                     name={symbol}
                     activeDot={{ r: isMobile ? 4 : 2, strokeWidth: 1 }}
                   />
@@ -349,7 +447,9 @@ export function PerformanceChart({
                     type="monotone"
                     dataKey={symbol}
                     stroke={getColor(symbol, index)}
-                    strokeWidth={getStrokeWidth('holding')}
+                    strokeWidth={strategy === 'momentum' ? getStrokeWidth('holding') + 1 : getStrokeWidth('holding')}
+                    strokeOpacity={strategy === 'momentum' ? 0.8 : 1}
+                    strokeDasharray="none" // Solid lines for strategy-adjusted performance
                     dot={false}
                     name={symbol}
                     activeDot={{ r: isMobile ? 4 : 2, strokeWidth: 1 }}
@@ -365,7 +465,7 @@ export function PerformanceChart({
 
   const getAllSeries = () => {
     const series = ['portfolio']
-    if (showBenchmark && benchmark) series.push('benchmark')
+    if (showBenchmark && benchmark && benchmarkSymbol) series.push('benchmark')
     if (showHoldings && holdings) series.push(...Object.keys(holdings))
     return series
   }
@@ -374,9 +474,35 @@ export function PerformanceChart({
     <Card className={className}>
       <CardHeader className={isMobile ? 'p-4' : undefined}>
         <div className="flex flex-col space-y-3 sm:flex-row sm:items-center sm:justify-between sm:space-y-0">
-          <CardTitle className={isMobile ? 'text-lg' : undefined}>{title}</CardTitle>
+          <div className="flex items-center space-x-3">
+            <CardTitle className={isMobile ? 'text-lg' : undefined}>{title}</CardTitle>
+            {/* Benchmark info badge - only show if benchmark data exists */}
+            {benchmark && benchmark.length > 0 && benchmarkSymbol && (
+              <Badge variant="outline" className="text-xs">
+                vs {benchmarkSymbol}
+              </Badge>
+            )}
+            {/* Momentum strategy indicator */}
+            {strategy === 'momentum' && showHoldings && holdings && (
+              <Badge variant="secondary" className="text-xs">
+                Momentum Timing
+              </Badge>
+            )}
+          </div>
           
           <div className="flex items-center gap-2">
+            {/* Benchmark toggle - only show if benchmark data exists */}
+            {benchmark && benchmark.length > 0 && benchmarkSymbol && (
+              <Button
+                variant={visibleSeries.has('benchmark') ? 'default' : 'outline'}
+                size={isMobile ? 'xs' : 'sm'}
+                onClick={() => toggleSeries('benchmark')}
+                className={isMobile ? 'px-2 py-1 text-xs h-7' : undefined}
+              >
+                {benchmarkSymbol}
+              </Button>
+            )}
+
             {/* Chart type controls */}
             <div className="flex items-center space-x-1">
               <Button
@@ -431,7 +557,7 @@ export function PerformanceChart({
                   style={{ backgroundColor: getColor(series, holdingIndex) }}
                 />
                 <span className="truncate">
-                  {series.charAt(0).toUpperCase() + series.slice(1)}
+                  {series === 'benchmark' ? benchmarkSymbol : series.charAt(0).toUpperCase() + series.slice(1)}
                 </span>
               </Badge>
             )
@@ -443,19 +569,41 @@ export function PerformanceChart({
           )}
         </div>
 
+        {/* No benchmark message */}
+        {!benchmark && !showHoldings && (
+          <div className="text-xs text-muted-foreground text-center py-2 bg-gray-50 rounded">
+            No benchmark data available. Run a backtest with a strategy that includes benchmark comparison to see benchmark performance.
+          </div>
+        )}
+
         {/* Mobile legend */}
         {isMobile && (
           <div className="text-xs text-muted-foreground space-y-1">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <div className="w-3 h-0.5 bg-indigo-500 rounded"></div>
               <span>Portfolio</span>
-              {showBenchmark && benchmark && (
+              {showBenchmark && benchmark && benchmarkSymbol && visibleSeries.has('benchmark') && (
                 <>
                   <div className="w-3 h-0.5 bg-red-500 rounded border-dashed border-t"></div>
-                  <span>Benchmark</span>
+                  <span>{benchmarkSymbol}</span>
+                  <Badge variant="outline" className="text-xs">
+                    Benchmark
+                  </Badge>
                 </>
               )}
             </div>
+            {benchmark && benchmark.length > 0 && benchmarkSymbol && !visibleSeries.has('benchmark') && (
+              <div className="text-xs text-gray-400">
+                Tap "{benchmarkSymbol}" button to show benchmark comparison
+              </div>
+            )}
+            {strategy === 'momentum' && showHoldings && holdings && (
+              <div className="text-xs text-blue-600 bg-blue-50 p-2 rounded mt-2">
+                <strong>Momentum Strategy:</strong> Asset lines show strategy-adjusted performance - 
+                flat during cash periods, actual returns when invested. 
+                Hover for timing details.
+              </div>
+            )}
           </div>
         )}
       </CardHeader>

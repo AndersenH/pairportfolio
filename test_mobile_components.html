@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mobile Chart Component Test</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Mobile-friendly chart styles */
+        .mobile-touch-target {
+            min-height: 44px;
+            min-width: 44px;
+        }
+        
+        .chart-container-mobile {
+            height: 40vh;
+            max-height: 300px;
+        }
+        
+        .chart-container-tablet {
+            height: 45vh;
+            max-height: 350px;
+        }
+        
+        .chart-container-desktop {
+            height: 400px;
+        }
+        
+        /* Touch-friendly scrolling */
+        .mobile-scroll {
+            -webkit-overflow-scrolling: touch;
+            overflow-scrolling: touch;
+        }
+        
+        /* Responsive text sizes */
+        @media (max-width: 640px) {
+            .text-mobile-xs { font-size: 10px; }
+            .text-mobile-sm { font-size: 11px; }
+            .text-mobile-base { font-size: 12px; }
+        }
+        
+        @media (min-width: 641px) and (max-width: 1024px) {
+            .text-mobile-xs { font-size: 11px; }
+            .text-mobile-sm { font-size: 12px; }
+            .text-mobile-base { font-size: 13px; }
+        }
+    </style>
+</head>
+<body class="bg-gray-50 p-4">
+    <div class="max-w-7xl mx-auto">
+        <h1 class="text-2xl font-bold text-center mb-8 text-gray-900">
+            📱 Mobile Chart Responsiveness Test
+        </h1>
+        
+        <!-- Screen Size Indicator -->
+        <div class="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+            <h2 class="text-lg font-semibold mb-2">Current Screen Size:</h2>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-2 text-sm">
+                <div class="block md:hidden bg-green-100 p-2 rounded">
+                    📱 <strong>Mobile</strong> (&lt; 768px)
+                </div>
+                <div class="hidden md:block lg:hidden bg-yellow-100 p-2 rounded">
+                    📊 <strong>Tablet</strong> (768px - 1024px)
+                </div>
+                <div class="hidden lg:block bg-purple-100 p-2 rounded">
+                    💻 <strong>Desktop</strong> (&gt; 1024px)
+                </div>
+            </div>
+            <div class="mt-2 text-xs text-gray-600" id="screenInfo">
+                Window size: <span id="windowSize">Loading...</span>
+            </div>
+        </div>
+        
+        <!-- Mobile-Responsive Chart Container -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            
+            <!-- Performance Chart Mockup -->
+            <div class="bg-white p-6 rounded-lg shadow-lg">
+                <h3 class="text-lg font-semibold mb-4 flex items-center">
+                    📈 Performance Chart (Mobile-Friendly)
+                </h3>
+                
+                <!-- Chart controls -->
+                <div class="mb-4 flex flex-wrap gap-2">
+                    <button class="mobile-touch-target px-3 py-2 bg-indigo-100 text-indigo-700 rounded text-sm font-medium hover:bg-indigo-200 transition-colors">
+                        📊 Line Chart
+                    </button>
+                    <button class="mobile-touch-target px-3 py-2 bg-gray-100 text-gray-700 rounded text-sm font-medium hover:bg-gray-200 transition-colors">
+                        📦 Area Chart
+                    </button>
+                </div>
+                
+                <!-- Chart container -->
+                <div class="chart-container-mobile lg:chart-container-desktop bg-gradient-to-br from-indigo-50 to-purple-50 border-2 border-dashed border-indigo-200 rounded-lg flex items-center justify-center">
+                    <div class="text-center">
+                        <div class="text-4xl mb-2">📈</div>
+                        <div class="text-mobile-sm text-gray-600">Responsive Chart Area</div>
+                        <div class="text-mobile-xs text-gray-500 mt-1">
+                            Height adapts to screen size
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Mobile-friendly legend -->
+                <div class="mt-4 flex flex-wrap gap-2">
+                    <div class="flex items-center gap-2 text-mobile-sm">
+                        <div class="w-3 h-3 bg-indigo-500 rounded"></div>
+                        <span>Portfolio</span>
+                    </div>
+                    <div class="flex items-center gap-2 text-mobile-sm">
+                        <div class="w-3 h-3 bg-green-500 rounded"></div>
+                        <span>Benchmark</span>
+                    </div>
+                    <div class="block md:hidden text-mobile-xs text-gray-500 w-full mt-1">
+                        Simplified view on mobile
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Allocation Chart Mockup -->
+            <div class="bg-white p-6 rounded-lg shadow-lg">
+                <h3 class="text-lg font-semibold mb-4 flex items-center">
+                    🥧 Allocation Chart (Touch-Friendly)
+                </h3>
+                
+                <!-- Pie chart container -->
+                <div class="flex flex-col lg:flex-row items-center gap-4">
+                    <div class="w-48 h-48 lg:w-56 lg:h-56 bg-gradient-to-br from-green-50 to-blue-50 border-2 border-dashed border-green-200 rounded-full flex items-center justify-center mobile-touch-target">
+                        <div class="text-center">
+                            <div class="text-4xl mb-2">🥧</div>
+                            <div class="text-mobile-sm text-gray-600">Touch-Friendly</div>
+                            <div class="text-mobile-xs text-gray-500">Pie Chart</div>
+                        </div>
+                    </div>
+                    
+                    <!-- Mobile-optimized holdings list -->
+                    <div class="flex-1 w-full">
+                        <h4 class="text-sm font-semibold mb-2">Holdings:</h4>
+                        <div class="space-y-2">
+                            <div class="flex items-center justify-between p-2 bg-gray-50 rounded mobile-touch-target">
+                                <div class="flex items-center gap-2">
+                                    <div class="w-3 h-3 bg-blue-500 rounded-full"></div>
+                                    <span class="text-mobile-sm font-medium">SPY</span>
+                                </div>
+                                <span class="text-mobile-sm font-semibold">50%</span>
+                            </div>
+                            <div class="flex items-center justify-between p-2 bg-gray-50 rounded mobile-touch-target">
+                                <div class="flex items-center gap-2">
+                                    <div class="w-3 h-3 bg-green-500 rounded-full"></div>
+                                    <span class="text-mobile-sm font-medium">QQQ</span>
+                                </div>
+                                <span class="text-mobile-sm font-semibold">30%</span>
+                            </div>
+                            <div class="flex items-center justify-between p-2 bg-gray-50 rounded mobile-touch-target">
+                                <div class="flex items-center gap-2">
+                                    <div class="w-3 h-3 bg-yellow-500 rounded-full"></div>
+                                    <span class="text-mobile-sm font-medium">BND</span>
+                                </div>
+                                <span class="text-mobile-sm font-semibold">20%</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Mobile Features Demo -->
+        <div class="mt-8 bg-white p-6 rounded-lg shadow-lg">
+            <h3 class="text-lg font-semibold mb-4">📱 Mobile Features Demo</h3>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <!-- Touch Target Demo -->
+                <div class="p-4 border border-gray-200 rounded-lg">
+                    <h4 class="font-medium mb-2">👆 Touch Targets</h4>
+                    <div class="space-y-2">
+                        <button class="mobile-touch-target w-full bg-blue-500 text-white rounded font-medium hover:bg-blue-600 transition-colors">
+                            44px Min Height
+                        </button>
+                        <div class="text-mobile-xs text-gray-600">
+                            All buttons meet 44px minimum for accessibility
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Responsive Text Demo -->
+                <div class="p-4 border border-gray-200 rounded-lg">
+                    <h4 class="font-medium mb-2">📝 Responsive Text</h4>
+                    <div class="space-y-1">
+                        <div class="text-mobile-xs">Extra Small Text</div>
+                        <div class="text-mobile-sm">Small Text</div>
+                        <div class="text-mobile-base">Base Text</div>
+                        <div class="text-mobile-xs text-gray-600 mt-2">
+                            Text scales with screen size
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Scrollable Demo -->
+                <div class="p-4 border border-gray-200 rounded-lg">
+                    <h4 class="font-medium mb-2">📜 Mobile Scroll</h4>
+                    <div class="mobile-scroll overflow-x-auto">
+                        <div class="flex gap-2 pb-2" style="width: 400px;">
+                            <div class="flex-shrink-0 w-16 h-12 bg-red-100 rounded"></div>
+                            <div class="flex-shrink-0 w-16 h-12 bg-blue-100 rounded"></div>
+                            <div class="flex-shrink-0 w-16 h-12 bg-green-100 rounded"></div>
+                            <div class="flex-shrink-0 w-16 h-12 bg-yellow-100 rounded"></div>
+                            <div class="flex-shrink-0 w-16 h-12 bg-purple-100 rounded"></div>
+                        </div>
+                    </div>
+                    <div class="text-mobile-xs text-gray-600 mt-2">
+                        Smooth momentum scrolling
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Test Instructions -->
+        <div class="mt-8 bg-yellow-50 border border-yellow-200 p-6 rounded-lg">
+            <h3 class="text-lg font-semibold mb-2 text-yellow-800">🧪 Test Instructions</h3>
+            <ul class="text-sm text-yellow-700 space-y-1">
+                <li>• <strong>Desktop:</strong> Resize browser window to test responsiveness</li>
+                <li>• <strong>Mobile:</strong> Use Chrome DevTools device emulation</li>
+                <li>• <strong>Touch:</strong> Test on actual mobile device for touch interactions</li>
+                <li>• <strong>Orientations:</strong> Test both portrait and landscape modes</li>
+                <li>• <strong>Performance:</strong> Check smooth scrolling and animations</li>
+            </ul>
+        </div>
+    </div>
+    
+    <script>
+        // Update screen size info
+        function updateScreenInfo() {
+            const width = window.innerWidth;
+            const height = window.innerHeight;
+            const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+            
+            document.getElementById('windowSize').textContent = `${width}x${height}px`;
+            document.getElementById('screenInfo').innerHTML = `
+                Window size: <span id="windowSize">${width}x${height}px</span><br>
+                Touch device: ${isTouchDevice ? 'Yes' : 'No'}<br>
+                User agent: ${navigator.userAgent.includes('Mobile') ? 'Mobile' : 'Desktop'}
+            `;
+        }
+        
+        // Update on load and resize
+        window.addEventListener('load', updateScreenInfo);
+        window.addEventListener('resize', updateScreenInfo);
+        
+        // Test touch events
+        document.querySelectorAll('.mobile-touch-target').forEach(element => {
+            element.addEventListener('touchstart', function() {
+                this.style.transform = 'scale(0.95)';
+            });
+            
+            element.addEventListener('touchend', function() {
+                this.style.transform = 'scale(1)';
+            });
+        });
+    </script>
+</body>
+</html>

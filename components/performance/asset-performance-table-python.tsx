@@ -56,6 +56,9 @@ interface AssetPerformance {
   maxDrawdown: number
   contribution: number
   allocation: number
+  percentageTimeInvested?: number // Percentage of time actually invested (weight > 0) vs in cash
+  benchmarkBeta?: number
+  relativeToBenchmark?: number // Performance relative to benchmark
 }
 
 interface AssetPerformanceTablePythonProps {
@@ -64,6 +67,9 @@ interface AssetPerformanceTablePythonProps {
   className?: string
   usePython?: boolean
   preCalculatedAssetPerformance?: AssetPerformance[] // Pre-calculated asset performance data
+  benchmarkSymbol?: string
+  strategy?: string // Current strategy used
+  strategyParameters?: Record<string, any> // Strategy parameters
 }
 
 type SortKey = keyof AssetPerformance
@@ -74,7 +80,10 @@ export function AssetPerformanceTablePython({
   portfolioAllocation, 
   className,
   usePython = true,
-  preCalculatedAssetPerformance = []
+  preCalculatedAssetPerformance = [],
+  benchmarkSymbol = 'SPY',
+  strategy = 'buy-hold',
+  strategyParameters = {}
 }: AssetPerformanceTablePythonProps) {
   const [sortKey, setSortKey] = React.useState<SortKey>('contribution')
   const [sortDirection, setSortDirection] = React.useState<SortDirection>('desc')
@@ -134,7 +143,8 @@ export function AssetPerformanceTablePython({
         sharpeRatio: asset.sharpeRatio || 0,
         maxDrawdown: asset.maxDrawdown || 0,
         contribution: asset.contribution || 0,
-        allocation: asset.allocation || portfolioAllocation[asset.symbol] || 0
+        allocation: asset.allocation || portfolioAllocation[asset.symbol] || 0,
+        percentageTimeInvested: asset.percentageTimeInvested || 0
       }))
       console.log('✅ Transformed data ready:', transformedData.length, 'assets')
       setAssetPerformance(transformedData)
@@ -252,6 +262,11 @@ export function AssetPerformanceTablePython({
       const finalWeight = weights[weights.length - 1] || 0
       const avgWeight = weights.length > 0 ? weights.reduce((sum, w) => sum + w, 0) / weights.length : 0
       
+      // Calculate percentage time invested (weight > 0)
+      const periodsInvested = weights.filter(w => w > 0.001).length // Use small threshold to account for rounding
+      const totalPeriods = weights.length
+      const percentageTimeInvested = totalPeriods > 0 ? periodsInvested / totalPeriods : 0
+      
       // Simplified asset performance calculation
       let assetPerformanceData = {
         totalReturn: 0,
@@ -341,7 +356,8 @@ export function AssetPerformanceTablePython({
         sharpeRatio: isFinite(assetPerformanceData.sharpeRatio) ? assetPerformanceData.sharpeRatio : 0,
         maxDrawdown: isFinite(assetPerformanceData.maxDrawdown) ? Math.max(0, Math.abs(assetPerformanceData.maxDrawdown)) : 0,
         contribution: isFinite(assetPerformanceData.contribution) ? assetPerformanceData.contribution : 0,
-        allocation: isFinite(portfolioAllocation[symbol]) ? portfolioAllocation[symbol] : 0
+        allocation: isFinite(portfolioAllocation[symbol]) ? portfolioAllocation[symbol] : 0,
+        percentageTimeInvested: isFinite(percentageTimeInvested) ? Math.max(0, Math.min(1, percentageTimeInvested)) : 0
       }
       
       console.log(`Asset ${symbol} performance calculated:`, {
@@ -437,6 +453,95 @@ export function AssetPerformanceTablePython({
     return { variant: 'destructive' as const, text: 'Poor' }
   }
 
+  // Helper function to get strategy impact analysis
+  const getStrategyImpact = (asset: AssetPerformance) => {
+    const targetAllocation = asset.allocation
+    const avgWeight = asset.avgWeight
+    const weightDifference = avgWeight - targetAllocation
+    const weightDifferencePercent = Math.abs(weightDifference / targetAllocation) * 100
+
+    let impact = 'neutral'
+    let description = ''
+
+    if (strategy === 'momentum') {
+      if (weightDifferencePercent > 5) {
+        if (weightDifference < 0) {
+          impact = 'reduced'
+          description = `Reduced exposure due to negative momentum periods`
+        } else {
+          impact = 'increased'
+          description = `Increased exposure during positive momentum`
+        }
+      } else {
+        impact = 'maintained'
+        description = `Portfolio maintained consistent exposure`
+      }
+    } else if (strategy === 'buy-hold') {
+      impact = 'maintained'
+      description = `Constant allocation as per buy-and-hold strategy`
+    } else {
+      if (weightDifferencePercent > 5) {
+        if (weightDifference < 0) {
+          impact = 'reduced'
+          description = `Strategy reduced average exposure`
+        } else {
+          impact = 'increased'
+          description = `Strategy increased average exposure`
+        }
+      }
+    }
+
+    return { impact, description, weightDifference, weightDifferencePercent }
+  }
+
+  // Helper function to calculate strategy-adjusted return
+  const getStrategyAdjustedReturn = (asset: AssetPerformance) => {
+    const rawReturn = asset.totalReturn
+    const targetWeight = asset.allocation
+    const avgWeight = asset.avgWeight
+    
+    // Strategy-adjusted return accounts for actual exposure
+    const strategyAdjustedReturn = rawReturn * (avgWeight / targetWeight)
+    
+    return {
+      rawReturn,
+      strategyAdjustedReturn,
+      timingImpact: strategyAdjustedReturn - rawReturn,
+      timingImpactPercent: ((strategyAdjustedReturn - rawReturn) / Math.abs(rawReturn)) * 100
+    }
+  }
+
+  // Helper function to get strategy-specific insights
+  const getStrategyInsights = (asset: AssetPerformance) => {
+    const insights: string[] = []
+    const { impact, weightDifferencePercent } = getStrategyImpact(asset)
+    const adjustedReturn = getStrategyAdjustedReturn(asset)
+
+    if (strategy === 'momentum') {
+      const lookbackPeriod = strategyParameters.lookbackPeriod || 60
+      const rebalanceFreq = strategyParameters.rebalanceFrequency || 'monthly'
+      const timeInvested = asset.percentageTimeInvested || 0
+      
+      if (impact === 'reduced') {
+        insights.push(`Momentum strategy (${lookbackPeriod}d lookback) reduced exposure by ${weightDifferencePercent.toFixed(1)}%`)
+        insights.push(`Timing impact: ${adjustedReturn.timingImpact >= 0 ? '+' : ''}${formatPercentage(adjustedReturn.timingImpact)} effective return`)
+        insights.push(`Asset invested ${Math.round(timeInvested * 100)}% of time, cash ${Math.round((1 - timeInvested) * 100)}% of time`)
+      } else if (impact === 'maintained') {
+        insights.push(`Consistent positive momentum maintained full allocation`)
+        insights.push(`Asset invested ${Math.round(timeInvested * 100)}% of time`)
+      }
+      
+      insights.push(`Rebalanced ${rebalanceFreq} based on ${lookbackPeriod}-day returns`)
+    } else if (strategy === 'relative-strength') {
+      const topN = strategyParameters.topN || 2
+      insights.push(`Selected as top ${topN} performer in relative strength analysis`)
+    } else if (strategy === 'mean-reversion') {
+      insights.push(`Mean reversion strategy exploited price deviations`)
+    }
+
+    return insights
+  }
+
   const exportToCSV = () => {
     const headers = [
       'Symbol', 'Initial Weight', 'Final Weight', 'Avg Weight', 
@@ -444,21 +549,35 @@ export function AssetPerformanceTablePython({
       'Max Drawdown', 'Contribution', 'Target Allocation'
     ]
     
+    // Add percentage time invested for momentum strategy
+    if (strategy === 'momentum') {
+      headers.splice(4, 0, 'Percentage Time Invested') // Insert after Avg Weight
+    }
+    
     const csvContent = [
       headers.join(','),
-      ...sortedAssets.map(asset => [
-        asset.symbol,
-        asset.initialWeight.toFixed(4),
-        asset.finalWeight.toFixed(4),
-        asset.avgWeight.toFixed(4),
-        asset.totalReturn.toFixed(4),
-        asset.annualizedReturn.toFixed(4),
-        asset.volatility.toFixed(4),
-        asset.sharpeRatio.toFixed(4),
-        asset.maxDrawdown.toFixed(4),
-        asset.contribution.toFixed(4),
-        asset.allocation.toFixed(4)
-      ].join(','))
+      ...sortedAssets.map(asset => {
+        const row = [
+          asset.symbol,
+          asset.initialWeight.toFixed(4),
+          asset.finalWeight.toFixed(4),
+          asset.avgWeight.toFixed(4),
+          asset.totalReturn.toFixed(4),
+          asset.annualizedReturn.toFixed(4),
+          asset.volatility.toFixed(4),
+          asset.sharpeRatio.toFixed(4),
+          asset.maxDrawdown.toFixed(4),
+          asset.contribution.toFixed(4),
+          asset.allocation.toFixed(4)
+        ]
+        
+        // Insert percentage time invested for momentum strategy
+        if (strategy === 'momentum') {
+          row.splice(4, 0, (asset.percentageTimeInvested || 0).toFixed(4))
+        }
+        
+        return row.join(',')
+      })
     ].join('\n')
 
     const blob = new Blob([csvContent], { type: 'text/csv' })
@@ -499,6 +618,8 @@ export function AssetPerformanceTablePython({
   const MobileAssetCard = ({ asset }: { asset: AssetPerformance }) => {
     const performanceBadge = getPerformanceBadge(asset.totalReturn)
     const isExpanded = expandedRows.has(asset.symbol)
+    const strategyImpact = getStrategyImpact(asset)
+    const strategyInsights = getStrategyInsights(asset)
     
     return (
       <div className="border rounded-lg p-4 space-y-3 bg-white">
@@ -511,6 +632,16 @@ export function AssetPerformanceTablePython({
             <Badge variant={performanceBadge.variant} className="text-xs">
               {performanceBadge.text}
             </Badge>
+            {strategyImpact.impact === 'reduced' && (
+              <Badge variant="outline" className="text-xs text-orange-600 border-orange-300">
+                Reduced
+              </Badge>
+            )}
+            {strategyImpact.impact === 'increased' && (
+              <Badge variant="outline" className="text-xs text-blue-600 border-blue-300">
+                Increased
+              </Badge>
+            )}
           </div>
           <button
             onClick={() => toggleRowExpansion(asset.symbol)}
@@ -528,13 +659,26 @@ export function AssetPerformanceTablePython({
         {/* Primary Metrics Row */}
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <div className="text-xs text-gray-500 font-medium">Total Return</div>
+            <div className="text-xs text-gray-500 font-medium">
+              {strategy === 'buy-hold' ? 'Total Return' : 'Asset Return (Raw)'}
+            </div>
             <div className="flex items-center space-x-1">
               {getTrendIcon(asset.totalReturn)}
               <span className={`text-sm font-medium ${asset.totalReturn >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                 {formatPercentage(asset.totalReturn)}
               </span>
             </div>
+            {strategy !== 'buy-hold' && (
+              <div className="mt-1">
+                <div className="text-xs text-gray-500 font-medium">Strategy-Adjusted</div>
+                <div className="flex items-center space-x-1">
+                  {getTrendIcon(getStrategyAdjustedReturn(asset).strategyAdjustedReturn)}
+                  <span className={`text-sm ${getStrategyAdjustedReturn(asset).strategyAdjustedReturn >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    {formatPercentage(getStrategyAdjustedReturn(asset).strategyAdjustedReturn)}
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
           <div>
             <div className="text-xs text-gray-500 font-medium">Target Allocation</div>
@@ -558,9 +702,20 @@ export function AssetPerformanceTablePython({
                 </div>
               </div>
               <div>
-                <div className="text-xs text-gray-500 font-medium">Avg Weight</div>
+                <div className="text-xs text-gray-500 font-medium">
+                  {strategy === 'momentum' ? 'Time Invested' : 'Avg Weight'}
+                </div>
                 <div className="text-sm text-gray-900">
-                  {formatPercentage(asset.avgWeight)}
+                  {strategy === 'momentum' && asset.percentageTimeInvested !== undefined ? (
+                    <div>
+                      <div className="font-medium">{formatPercentage(asset.percentageTimeInvested)}</div>
+                      <div className="text-xs text-gray-500">
+                        {Math.round((asset.percentageTimeInvested || 0) * 100)}% of time
+                      </div>
+                    </div>
+                  ) : (
+                    formatPercentage(asset.avgWeight)
+                  )}
                 </div>
               </div>
             </div>
@@ -597,6 +752,57 @@ export function AssetPerformanceTablePython({
                 </div>
               </div>
             </div>
+
+            {/* Strategy Impact Analysis */}
+            <div className="pt-3 border-t">
+              <div className="text-xs text-gray-500 font-medium mb-2">Strategy Impact Analysis</div>
+              <div className="space-y-2">
+                <div className="flex justify-between items-center">
+                  <span className="text-xs text-gray-600">Target → Actual Weight:</span>
+                  <span className="text-xs font-medium">
+                    {formatPercentage(asset.allocation)} → {formatPercentage(asset.avgWeight)}
+                    {strategyImpact.weightDifferencePercent > 1 && (
+                      <span className={`ml-1 ${strategyImpact.weightDifference < 0 ? 'text-orange-600' : 'text-blue-600'}`}>
+                        ({strategyImpact.weightDifference > 0 ? '+' : ''}{formatPercentage(strategyImpact.weightDifference)})
+                      </span>
+                    )}
+                  </span>
+                </div>
+                <div className="text-xs text-gray-600 bg-gray-50 p-2 rounded">
+                  {strategyImpact.description}
+                </div>
+                {strategyInsights.length > 0 && (
+                  <div className="space-y-1">
+                    {strategyInsights.map((insight, idx) => (
+                      <div key={idx} className="text-xs text-blue-700 bg-blue-50 p-2 rounded">
+                        • {insight}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Benchmark comparison if available */}
+            {results.benchmarkComparison && benchmarkSymbol && asset.relativeToBenchmark !== undefined && (
+              <div className="grid grid-cols-2 gap-4 pt-3 border-t">
+                <div>
+                  <div className="text-xs text-gray-500 font-medium">vs {benchmarkSymbol}</div>
+                  <div className="flex items-center space-x-1">
+                    {getTrendIcon(asset.relativeToBenchmark)}
+                    <span className={`text-sm ${asset.relativeToBenchmark >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      {asset.relativeToBenchmark >= 0 ? '+' : ''}{formatPercentage(asset.relativeToBenchmark)}
+                    </span>
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-gray-500 font-medium">Relative Performance</div>
+                  <div className="text-sm text-gray-600">
+                    {asset.relativeToBenchmark >= 0 ? 'Outperformed' : 'Underperformed'}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -610,6 +816,18 @@ export function AssetPerformanceTablePython({
           <CardTitle className="flex items-center space-x-2 flex-wrap">
             <BarChart3 className="h-5 w-5" />
             <span className="text-lg sm:text-xl">Asset Performance Analysis</span>
+            <Badge variant="default" className="text-xs">
+              {strategy === 'buy-hold' ? 'Buy & Hold' : 
+               strategy === 'momentum' ? 'Momentum' :
+               strategy === 'relative-strength' ? 'Relative Strength' :
+               strategy === 'mean-reversion' ? 'Mean Reversion' :
+               strategy.charAt(0).toUpperCase() + strategy.slice(1)}
+            </Badge>
+            {results.benchmarkComparison && benchmarkSymbol && (
+              <Badge variant="outline" className="text-xs">
+                vs {benchmarkSymbol}
+              </Badge>
+            )}
             {calculationMethod === 'python' && (
               <Badge variant="secondary" className="flex items-center space-x-1">
                 <Zap className="h-3 w-3" />
@@ -680,9 +898,17 @@ export function AssetPerformanceTablePython({
                         <SortableHeader sortKey="avgWeight" className="text-center">
                           Avg Weight
                         </SortableHeader>
+                        {strategy === 'momentum' && (
+                          <SortableHeader sortKey="percentageTimeInvested" className="text-center">
+                            Time Invested
+                          </SortableHeader>
+                        )}
                         <SortableHeader sortKey="totalReturn" className="text-center">
-                          Total Return
+                          {strategy === 'buy-hold' ? 'Total Return' : 'Asset Return'}
                         </SortableHeader>
+                        {strategy !== 'buy-hold' && (
+                          <TableHead className="text-center">Strategy-Adjusted</TableHead>
+                        )}
                         <SortableHeader sortKey="annualizedReturn" className="text-center">
                           Annual Return
                         </SortableHeader>
@@ -698,6 +924,9 @@ export function AssetPerformanceTablePython({
                         <SortableHeader sortKey="contribution" className="text-center">
                           Contribution
                         </SortableHeader>
+                        {results.benchmarkComparison && benchmarkSymbol && (
+                          <TableHead className="text-center">vs {benchmarkSymbol}</TableHead>
+                        )}
                         <TableHead className="text-center">Performance</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -705,6 +934,7 @@ export function AssetPerformanceTablePython({
                     <TableBody>
                       {sortedAssets.map((asset) => {
                         const performanceBadge = getPerformanceBadge(asset.totalReturn)
+                        const strategyImpact = getStrategyImpact(asset)
                         
                         return (
                           <TableRow key={asset.symbol} className="hover:bg-gray-50">
@@ -713,6 +943,16 @@ export function AssetPerformanceTablePython({
                                 <span className="font-mono text-sm bg-gray-100 px-2 py-1 rounded">
                                   {asset.symbol}
                                 </span>
+                                {strategyImpact.impact === 'reduced' && (
+                                  <Badge variant="outline" className="text-xs text-orange-600 border-orange-300">
+                                    ↓
+                                  </Badge>
+                                )}
+                                {strategyImpact.impact === 'increased' && (
+                                  <Badge variant="outline" className="text-xs text-blue-600 border-blue-300">
+                                    ↑
+                                  </Badge>
+                                )}
                               </div>
                             </TableCell>
                             
@@ -721,8 +961,26 @@ export function AssetPerformanceTablePython({
                             </TableCell>
                             
                             <TableCell className="text-center min-w-[80px]">
-                              {formatPercentage(asset.avgWeight)}
+                              <div className="flex flex-col items-center">
+                                <span>{formatPercentage(asset.avgWeight)}</span>
+                                {strategyImpact.weightDifferencePercent > 1 && (
+                                  <span className={`text-xs ${strategyImpact.weightDifference < 0 ? 'text-orange-600' : 'text-blue-600'}`}>
+                                    ({strategyImpact.weightDifference > 0 ? '+' : ''}{formatPercentage(strategyImpact.weightDifference)})
+                                  </span>
+                                )}
+                              </div>
                             </TableCell>
+                            
+                            {strategy === 'momentum' && (
+                              <TableCell className="text-center min-w-[90px]">
+                                <div className="flex flex-col items-center">
+                                  <span className="font-medium">{formatPercentage(asset.percentageTimeInvested || 0)}</span>
+                                  <span className="text-xs text-gray-500">
+                                    ({Math.round(((asset.percentageTimeInvested || 0) * 100))}% invested)
+                                  </span>
+                                </div>
+                              </TableCell>
+                            )}
                             
                             <TableCell className="text-center min-w-[100px]">
                               <div className="flex items-center justify-center space-x-1">
@@ -732,6 +990,20 @@ export function AssetPerformanceTablePython({
                                 </span>
                               </div>
                             </TableCell>
+                            
+                            {strategy !== 'buy-hold' && (
+                              <TableCell className="text-center min-w-[100px]">
+                                <div className="flex items-center justify-center space-x-1">
+                                  {getTrendIcon(getStrategyAdjustedReturn(asset).strategyAdjustedReturn)}
+                                  <span className={getStrategyAdjustedReturn(asset).strategyAdjustedReturn >= 0 ? 'text-green-600' : 'text-red-600'}>
+                                    {formatPercentage(getStrategyAdjustedReturn(asset).strategyAdjustedReturn)}
+                                  </span>
+                                </div>
+                                <div className="text-xs text-gray-500 mt-1">
+                                  {getStrategyAdjustedReturn(asset).timingImpact >= 0 ? '+' : ''}{formatPercentage(getStrategyAdjustedReturn(asset).timingImpact)} timing
+                                </div>
+                              </TableCell>
+                            )}
                             
                             <TableCell className="text-center min-w-[100px]">
                               <div className="flex items-center justify-center space-x-1">
@@ -765,6 +1037,23 @@ export function AssetPerformanceTablePython({
                               </div>
                             </TableCell>
                             
+                            {results.benchmarkComparison && benchmarkSymbol && (
+                              <TableCell className="text-center min-w-[100px]">
+                                {asset.relativeToBenchmark !== undefined ? (
+                                  <div className="flex items-center justify-center space-x-1">
+                                    {getTrendIcon(asset.relativeToBenchmark)}
+                                    <span className={asset.relativeToBenchmark >= 0 ? 'text-green-600' : 'text-red-600'}>
+                                      {asset.relativeToBenchmark >= 0 ? '+' : ''}{formatPercentage(asset.relativeToBenchmark)}
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center justify-center">
+                                    <span className="text-gray-400 text-xs">N/A</span>
+                                  </div>
+                                )}
+                              </TableCell>
+                            )}
+                            
                             <TableCell className="text-center min-w-[80px]">
                               <Badge variant={performanceBadge.variant} className="text-xs">
                                 {performanceBadge.text}
@@ -790,7 +1079,9 @@ export function AssetPerformanceTablePython({
                       { key: 'totalReturn' as SortKey, label: 'Return' },
                       { key: 'allocation' as SortKey, label: 'Allocation' },
                       { key: 'sharpeRatio' as SortKey, label: 'Sharpe' },
-                      { key: 'volatility' as SortKey, label: 'Volatility' }
+                      { key: 'volatility' as SortKey, label: 'Volatility' },
+                      ...(strategy === 'momentum' ? [{ key: 'percentageTimeInvested' as SortKey, label: 'Time Invested' }] : []),
+                      ...(results.benchmarkComparison && benchmarkSymbol ? [{ key: 'relativeToBenchmark' as SortKey, label: `vs ${benchmarkSymbol}` }] : [])
                     ].map(({ key, label }) => (
                       <button
                         key={key}
@@ -841,6 +1132,17 @@ export function AssetPerformanceTablePython({
             * Asset returns are calculated using {calculationMethod === 'python' ? 'NumPy/Python' : 'JavaScript'} with {results.assetPrices && Object.keys(results.assetPrices).length > 0 ? 'real asset price data' : 'realistic simulation'}. 
             {preCalculatedAssetPerformance.length > 0 ? 'Using pre-calculated data from enhanced backtest API.' : 'Data calculated on-demand.'} 
             Contribution represents the weighted contribution to total portfolio return.
+          </p>
+          <p>
+            ** Strategy Impact: "Avg Weight" shows how the {strategy === 'buy-hold' ? 'Buy & Hold' : 
+            strategy === 'momentum' ? 'Momentum' :
+            strategy === 'relative-strength' ? 'Relative Strength' :
+            strategy === 'mean-reversion' ? 'Mean Reversion' :
+            strategy.charAt(0).toUpperCase() + strategy.slice(1)} strategy affected actual asset allocations compared to your target allocations.
+            {strategy === 'momentum' && ' Momentum strategy may reduce exposure during negative periods.'}
+            {strategy === 'relative-strength' && ' Relative strength strategy selects top performers.'}
+            {strategy === 'mean-reversion' && ' Mean reversion strategy exploits price deviations.'}
+            {strategy !== 'buy-hold' && ' "Strategy-Adjusted" return shows what you actually earned from each asset considering timing decisions.'}
           </p>
           {results.assetPrices && Object.keys(results.assetPrices).length > 0 && (
             <p className="mt-1">

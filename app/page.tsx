@@ -1,19 +1,22 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import React, { useState, useMemo, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { SearchDropdown } from '@/components/ui/search-dropdown'
 import Link from 'next/link'
-import { TrendingUp, BarChart3, PieChart, Search, Star, Play, Trash2, Download, Share2, AlertCircle, Loader2, X, Menu } from 'lucide-react'
+import { useSession } from 'next-auth/react'
+import { TrendingUp, BarChart3, PieChart, Search, Star, Play, Trash2, Download, Share2, AlertCircle, Loader2, X, Menu, Save } from 'lucide-react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart as RechartsPieChart, Pie, Cell, Legend } from 'recharts'
 import { PerformanceChart } from '@/components/charts/performance-chart' 
 import { AllocationChart } from '@/components/charts/allocation-chart'
 import { AssetPerformanceDemo } from '@/components/performance/asset-performance-demo'
 import { AssetPerformanceTablePython } from '@/components/performance/asset-performance-table-python'
 import { useMobileResponsive } from '@/lib/client-utils'
+import { BenchmarkSelector } from '@/components/portfolio/portfolio-form'
+import { usePortfolios } from '@/hooks/use-portfolios'
 // Simple toast replacement for now
 const useToast = () => ({
   toast: ({ title, description, variant }: { title: string; description: string; variant?: string }) => {
@@ -130,7 +133,7 @@ const formatPerformanceData = (portfolioValue: number[], dates: string[]) => {
   })
 }
 
-// Format holdings data for performance chart
+// Format holdings data for performance chart (portfolio weights)
 const formatHoldingsData = (holdings: Record<string, number[]>, dates: string[]) => {
   if (!holdings || !dates) {
     return {}
@@ -149,6 +152,99 @@ const formatHoldingsData = (holdings: Record<string, number[]>, dates: string[])
   })
   
   return formattedHoldings
+}
+
+// Format asset prices data for individual asset performance display
+const formatAssetPricesData = (assetPrices: Record<string, number[]>, dates: string[]) => {
+  if (!assetPrices || !dates) {
+    return {}
+  }
+  
+  const formattedAssetPrices: Record<string, any[]> = {}
+  
+  Object.entries(assetPrices).forEach(([symbol, prices]) => {
+    if (prices && prices.length > 0 && dates.length > 0) {
+      // Find first valid price to use as base for normalization
+      let basePrice = prices[0]
+      for (let i = 0; i < prices.length; i++) {
+        if (prices[i] && prices[i] > 0 && isFinite(prices[i])) {
+          basePrice = prices[i]
+          break
+        }
+      }
+      
+      if (basePrice && basePrice > 0) {
+        formattedAssetPrices[symbol] = prices.map((price, index) => ({
+          date: dates[index] || '',
+          value: price && price > 0 ? price / basePrice : basePrice / basePrice, // Normalize asset prices to show performance
+        }))
+      }
+    }
+  })
+  
+  return formattedAssetPrices
+}
+
+// Combine asset prices with timing information from weights (for momentum strategies)
+const combineAssetPricesWithTiming = (
+  assetPrices: Record<string, any[]>, 
+  weights: Record<string, number[]>, 
+  dates: string[],
+  strategy: string = 'buy-hold'
+) => {
+  if (!assetPrices || !weights || !dates) {
+    return {}
+  }
+  
+  const combined: Record<string, any[]> = {}
+  
+  Object.keys(assetPrices).forEach(symbol => {
+    const priceData = assetPrices[symbol] || []
+    const weightData = weights[symbol] || []
+    
+    if (priceData.length > 0) {
+      // For momentum strategy, adjust asset values to reflect strategy impact
+      if (strategy === 'momentum') {
+        let lastInvestedValue = priceData[0]?.value || 1 // Start with initial value
+        
+        combined[symbol] = priceData.map((pricePoint, index) => {
+          const weight = weightData[index] || 0
+          const isInvested = weight > 0
+          
+          // Strategy-adjusted logic:
+          // - During invested periods: use actual asset performance
+          // - During cash periods: hold at the last invested value (flat line)
+          let adjustedValue: number
+          
+          if (isInvested) {
+            // Invested period: use actual asset performance
+            adjustedValue = pricePoint.value
+            lastInvestedValue = adjustedValue // Update last invested value
+          } else {
+            // Cash period: flat line at last invested value
+            adjustedValue = lastInvestedValue
+          }
+          
+          return {
+            ...pricePoint,
+            value: adjustedValue, // Strategy-adjusted value
+            originalValue: pricePoint.value, // Preserve original for reference
+            weight: weight,
+            invested: isInvested ? 1 : 0 // Binary indicator for momentum timing
+          }
+        })
+      } else {
+        // For other strategies, preserve original behavior
+        combined[symbol] = priceData.map((pricePoint, index) => ({
+          ...pricePoint,
+          weight: weightData[index] || 0,
+          invested: (weightData[index] || 0) > 0 ? 1 : 0 // Binary indicator for timing
+        }))
+      }
+    }
+  })
+  
+  return combined
 }
 
 // Format allocation data for pie chart
@@ -325,17 +421,19 @@ export default function HomePage() {
   const [portfolioName, setPortfolioName] = useState('My ETF Portfolio')
   const [initialInvestment, setInitialInvestment] = useState(10000)
   const [strategy, setStrategy] = useState('buy-hold')
+  const [benchmarkSymbol, setBenchmarkSymbol] = useState<string | null>(null)
   const [strategyParameters, setStrategyParameters] = useState({
     momentum: {
       lookbackPeriod: 3,
       rebalanceFrequency: 'monthly',
-      topN: 3
+      topN: 3,
+      positiveReturnsOnly: false
     },
     'relative-strength': {
       lookbackPeriod: 6,
       rebalanceFrequency: 'monthly',
       topN: 2,
-      benchmarkSymbol: 'SPY'
+      positiveReturnsOnly: false
     },
     'mean-reversion': {
       lookbackPeriod: 1,
@@ -349,13 +447,126 @@ export default function HomePage() {
     }
   })
   const [isRunning, setIsRunning] = useState(false)
-  const [startDate, setStartDate] = useState('2019-01-01')
-  const [endDate, setEndDate] = useState('2024-01-01')
+  // Calculate default dates: 5-year window ending today (July 28, 2025)
+  const getDefaultDates = () => {
+    const today = new Date('2025-07-28')
+    const fiveYearsAgo = new Date(today)
+    fiveYearsAgo.setFullYear(today.getFullYear() - 5)
+    
+    return {
+      start: fiveYearsAgo.toISOString().split('T')[0],
+      end: today.toISOString().split('T')[0]
+    }
+  }
+  
+  const defaultDates = getDefaultDates()
+  const [startDate, setStartDate] = useState(defaultDates.start)
+  const [endDate, setEndDate] = useState(defaultDates.end)
   const [backtestResult, setBacktestResult] = useState<BacktestResult | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [showIndividualAssets, setShowIndividualAssets] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [benchmarkData, setBenchmarkData] = useState<any[] | null>(null)
+  const [isSaving, setIsSaving] = useState(false)
+  const [selectedPortfolioId, setSelectedPortfolioId] = useState<string>('')
   const { toast } = useToast()
+  const { data: session } = useSession()
+  const { data: portfoliosData, isLoading: portfoliosLoading } = usePortfolios(1, 50)
+
+  // Handle loading saved portfolio
+  const handleLoadPortfolio = (portfolioId: string) => {
+    const savedPortfolios = portfoliosData?.data || []
+    const selectedPortfolio = savedPortfolios.find(p => p.id === portfolioId)
+    
+    if (selectedPortfolio) {
+      setPortfolioName(selectedPortfolio.name)
+      setPortfolioItems(selectedPortfolio.holdings.map(h => ({
+        symbol: h.symbol,
+        name: h.symbol, // We'll use symbol as name for now
+        allocation: Number(h.allocation) * 100 // Convert from decimal to percentage
+      })))
+      setSelectedPortfolioId(portfolioId)
+      
+      toast({
+        title: "Portfolio Loaded",
+        description: `Loaded "${selectedPortfolio.name}" with ${selectedPortfolio.holdings.length} holdings.`,
+      })
+    }
+  }
+
+  // Handle saving portfolio
+  const handleSavePortfolio = async () => {
+    if (!session) {
+      toast({
+        title: "Authentication Required",
+        description: "Please sign in to save portfolios.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    if (portfolioItems.length === 0) {
+      toast({
+        title: "No Holdings",
+        description: "Please add at least one ETF to your portfolio before saving.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    if (Math.abs(totalAllocation - 100) > 0.1) {
+      toast({
+        title: "Invalid Allocation",
+        description: "Portfolio allocation must equal 100% before saving.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setIsSaving(true)
+
+    try {
+      const portfolioData = {
+        name: portfolioName || 'My ETF Portfolio',
+        description: `ETF portfolio with ${portfolioItems.length} holdings`,
+        isPublic: false,
+        holdings: portfolioItems.map(item => ({
+          symbol: item.symbol,
+          allocation: item.allocation / 100, // Convert percentage to decimal
+        })),
+      }
+
+      const response = await fetch('/api/portfolios', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(portfolioData),
+      })
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to save portfolio')
+      }
+
+      toast({
+        title: "Portfolio Saved!",
+        description: `"${portfolioName}" has been saved to your account.`,
+      })
+    } catch (error) {
+      toast({
+        title: "Save Failed",
+        description: error instanceof Error ? error.message : 'Failed to save portfolio',
+        variant: "destructive",
+      })
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  // Clear benchmark data when benchmark symbol changes
+  useEffect(() => {
+    setBenchmarkData(null)
+  }, [benchmarkSymbol])
 
   const addETFToPortfolio = (etf: PopularETF) => {
     const exists = portfolioItems.find(item => item.symbol === etf.symbol)
@@ -417,6 +628,58 @@ export default function HomePage() {
     ))
   }
 
+  const fetchBenchmarkData = async (symbol: string, startDate: string, endDate: string) => {
+    try {
+      // Calculate appropriate period based on date range
+      const start = new Date(startDate)
+      const end = new Date(endDate)
+      const diffYears = (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24 * 365)
+      
+      let period = '5y' // default
+      if (diffYears <= 0.08) period = '1mo' // ~1 month
+      else if (diffYears <= 0.25) period = '3mo' // ~3 months
+      else if (diffYears <= 0.5) period = '6mo' // ~6 months  
+      else if (diffYears <= 1) period = '1y' // ~1 year
+      else if (diffYears <= 2) period = '2y' // ~2 years
+      else period = '5y' // 5+ years
+      
+      const response = await fetch(`/api/market-data/${symbol}?period=${period}&interval=1d`)
+      if (!response.ok) {
+        console.warn(`Failed to fetch benchmark data for ${symbol}`)
+        return null
+      }
+      
+      const result = await response.json()
+      const data = result.data
+      
+      // Transform the data to match chart format (normalize to starting value)
+      if (data && data.length > 0) {
+        // Filter data to match the date range as closely as possible
+        const filteredData = data.filter((point: any) => {
+          const pointDate = new Date(point.date)
+          return pointDate >= start && pointDate <= end
+        })
+        
+        if (filteredData.length === 0) return null
+        
+        const baseValue = filteredData[0].close
+        return filteredData.map((point: any) => ({
+          date: point.date,
+          value: point.close / baseValue, // Normalize like portfolio data
+          formattedDate: new Date(point.date).toLocaleDateString('en-US', {
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric'
+          })
+        }))
+      }
+      return null
+    } catch (error) {
+      console.error('Error fetching benchmark data:', error)
+      return null
+    }
+  }
+
   const handleRunBacktest = async () => {
     if (portfolioItems.length === 0) {
       toast({
@@ -439,6 +702,7 @@ export default function HomePage() {
     setIsRunning(true)
     setError(null)
     setBacktestResult(null)
+    setBenchmarkData(null) // Clear previous benchmark data
 
     try {
       const backtestData = {
@@ -452,6 +716,7 @@ export default function HomePage() {
         initialCapital: initialInvestment,
         strategy,
         strategyParameters: strategy !== 'buy-hold' ? strategyParameters[strategy as keyof typeof strategyParameters] : undefined,
+        benchmarkSymbol,
       }
 
       console.log('Attempting backtest with data:', backtestData)
@@ -517,6 +782,15 @@ export default function HomePage() {
         assetPrices: backtest.assetPrices || null // Include individual asset price data
       })
 
+      // Fetch benchmark data if a benchmark is selected
+      if (benchmarkSymbol) {
+        console.log(`Fetching benchmark data for ${benchmarkSymbol}`)
+        const benchmarkTimeSeries = await fetchBenchmarkData(benchmarkSymbol, startDate, endDate)
+        setBenchmarkData(benchmarkTimeSeries)
+      } else {
+        setBenchmarkData(null)
+      }
+
       toast({
         title: "Backtest Completed",
         description: "Your backtest results are now available.",
@@ -542,23 +816,54 @@ export default function HomePage() {
     ? formatPerformanceData(backtestResult.portfolioValue, backtestResult.dates)
     : []
   
-  const holdingsData = backtestResult && backtestResult.holdings && backtestResult.dates
-    ? formatHoldingsData(backtestResult.holdings, backtestResult.dates)
+  // For individual asset display, use asset prices data instead of holdings (weights)
+  const assetPricesData = backtestResult && backtestResult.assetPrices && backtestResult.dates
+    ? formatAssetPricesData(backtestResult.assetPrices, backtestResult.dates)
     : {}
+  
+  // Process holdings data based on strategy type
+  const holdingsData = React.useMemo(() => {
+    if (!backtestResult?.dates) return {}
+    
+    if (strategy === 'momentum' && backtestResult.assetPrices && backtestResult.holdings) {
+      // For momentum, create strategy-adjusted asset performance showing flat lines during cash periods
+      const weights = convertHoldingsToWeights(backtestResult.holdings)
+      return combineAssetPricesWithTiming(assetPricesData, weights, backtestResult.dates, strategy)
+    } else if (backtestResult.assetPrices) {
+      // For other strategies, use raw asset prices for individual display
+      return assetPricesData
+    } else if (backtestResult.holdings) {
+      // Fallback to weights if no asset prices available
+      return formatHoldingsData(backtestResult.holdings, backtestResult.dates)
+    }
+    
+    return {}
+  }, [backtestResult, strategy, assetPricesData])
   
   const allocationData = formatAllocationData(portfolioItems)
 
-  // Calculate asset performance metrics
+  // Calculate asset performance metrics using asset prices data
   const assetPerformanceMetrics: AssetPerformanceMetrics[] = useMemo(() => {
-    if (!backtestResult?.holdings || !backtestResult?.dates) {
+    if (!backtestResult?.dates) {
+      return []
+    }
+
+    // Use pre-calculated asset performance if available (from Python backend)
+    if (backtestResult.assetPerformance && backtestResult.assetPerformance.length > 0) {
+      return backtestResult.assetPerformance
+    }
+
+    // Fallback: calculate from asset prices or holdings data
+    const dataSource = backtestResult.assetPrices || backtestResult.holdings
+    if (!dataSource) {
       return []
     }
 
     return portfolioItems
       .filter(item => item.allocation > 0)
       .map(item => {
-        const holdingValues = backtestResult.holdings![item.symbol]
-        if (!holdingValues) {
+        const assetValues = dataSource[item.symbol]
+        if (!assetValues) {
           return {
             symbol: item.symbol,
             totalReturn: 0,
@@ -568,7 +873,7 @@ export default function HomePage() {
             maxDrawdown: 0
           }
         }
-        return calculateAssetPerformanceMetrics(item.symbol, holdingValues, backtestResult.dates!)
+        return calculateAssetPerformanceMetrics(item.symbol, assetValues, backtestResult.dates!)
       })
   }, [backtestResult, portfolioItems])
 
@@ -648,6 +953,59 @@ export default function HomePage() {
                     min={100}
                   />
                 </div>
+                
+                {/* Saved Portfolio Selection */}
+                {session && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Load Saved Portfolio (Optional)</label>
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <select
+                          value={selectedPortfolioId}
+                          onChange={(e) => {
+                            if (e.target.value) {
+                              handleLoadPortfolio(e.target.value)
+                            }
+                          }}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white text-gray-900"
+                          disabled={portfoliosLoading}
+                        >
+                          <option value="">Select a saved portfolio...</option>
+                          {portfoliosData?.data?.map((portfolio) => (
+                            <option key={portfolio.id} value={portfolio.id}>
+                              {portfolio.name} ({portfolio.holdings.length} holdings)
+                            </option>
+                          ))}
+                        </select>
+                        {portfoliosLoading && (
+                          <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                            <Loader2 className="w-4 h-4 animate-spin text-gray-400" />
+                          </div>
+                        )}
+                      </div>
+                      {selectedPortfolioId && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setSelectedPortfolioId('')
+                            toast({
+                              title: "Portfolio Cleared",
+                              description: "Portfolio selection cleared. Continue editing manually.",
+                            })
+                          }}
+                          className="px-3 py-2 flex-shrink-0"
+                        >
+                          <X className="w-4 h-4" />
+                        </Button>
+                      )}
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Select a saved portfolio to load its holdings, or continue building manually below
+                    </p>
+                  </div>
+                )}
 
                 {/* Date Range */}
                 <div>
@@ -667,6 +1025,14 @@ export default function HomePage() {
                       className={isMobile ? 'w-full' : ''}
                     />
                   </div>
+                </div>
+
+                {/* Benchmark Selection */}
+                <div>
+                  <BenchmarkSelector
+                    value={benchmarkSymbol}
+                    onValueChange={setBenchmarkSymbol}
+                  />
                 </div>
 
                 {/* Strategy Type */}
@@ -763,6 +1129,22 @@ export default function HomePage() {
                             <span>10</span>
                           </div>
                         </div>
+                        
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            id="momentum-positive-returns"
+                            checked={strategyParameters.momentum.positiveReturnsOnly}
+                            onChange={(e) => setStrategyParameters(prev => ({
+                              ...prev,
+                              momentum: { ...prev.momentum, positiveReturnsOnly: e.target.checked }
+                            }))}
+                            className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+                          />
+                          <label htmlFor="momentum-positive-returns" className="text-xs text-gray-700">
+                            Only invest in assets with positive returns
+                          </label>
+                        </div>
                       </div>
                     )}
 
@@ -834,20 +1216,20 @@ export default function HomePage() {
                           </div>
                         </div>
                         
-                        <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">
-                            Benchmark Symbol
-                          </label>
-                          <Input
-                            type="text"
-                            value={strategyParameters['relative-strength'].benchmarkSymbol}
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            id="relative-strength-positive-returns"
+                            checked={strategyParameters['relative-strength'].positiveReturnsOnly}
                             onChange={(e) => setStrategyParameters(prev => ({
                               ...prev,
-                              'relative-strength': { ...prev['relative-strength'], benchmarkSymbol: e.target.value.toUpperCase() }
+                              'relative-strength': { ...prev['relative-strength'], positiveReturnsOnly: e.target.checked }
                             }))}
-                            placeholder="SPY"
-                            className="text-sm"
+                            className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
                           />
+                          <label htmlFor="relative-strength-positive-returns" className="text-xs text-gray-700">
+                            Only invest in assets with positive returns
+                          </label>
                         </div>
                       </div>
                     )}
@@ -1025,7 +1407,7 @@ export default function HomePage() {
                     Search Stocks & ETFs
                   </label>
                   <SearchDropdown
-                    placeholder="Search for stocks/ETFs (e.g., AAPL, SPY, QQQ...)"
+                    placeholder="Search for stocks/ETFs (e.g., AAPL, VTI, QQQ...)"
                     onSelect={addSearchResultToPortfolio}
                     disabled={isRunning}
                   />
@@ -1106,7 +1488,7 @@ export default function HomePage() {
                 )}
 
                 {/* Action Buttons */}
-                <div className={`pt-4 ${isMobile ? 'space-y-3' : 'flex justify-between'}`}>
+                <div className={`pt-4 ${isMobile ? 'space-y-3' : 'flex justify-between gap-3'}`}>
                   <Button 
                     variant="outline" 
                     onClick={() => setPortfolioItems([])}
@@ -1115,6 +1497,28 @@ export default function HomePage() {
                     <Trash2 className="w-4 h-4" />
                     Clear Portfolio
                   </Button>
+                  
+                  {session && (
+                    <Button 
+                      variant="outline" 
+                      onClick={handleSavePortfolio}
+                      disabled={isSaving || portfolioItems.length === 0 || Math.abs(totalAllocation - 100) > 0.1}
+                      className={`flex items-center gap-2 border-green-300 text-green-700 hover:bg-green-50 ${isMobile ? 'w-full justify-center min-h-[44px] touch-manipulation' : ''}`}
+                    >
+                      {isSaving ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          {isMobile ? 'Saving...' : 'Saving...'}
+                        </>
+                      ) : (
+                        <>
+                          <Save className="w-4 h-4" />
+                          {isMobile ? 'Save Portfolio' : 'Save Portfolio'}
+                        </>
+                      )}
+                    </Button>
+                  )}
+                  
                   <Button 
                     onClick={handleRunBacktest}
                     disabled={isRunning || portfolioItems.length === 0 || Math.abs(totalAllocation - 100) > 0.1}
@@ -1143,7 +1547,23 @@ export default function HomePage() {
             <Card className={isMobile ? 'p-4' : 'p-6'}>
               <CardHeader className={`px-0 pt-0 ${isMobile ? 'pb-4' : 'pb-6'}`}>
                 <div className={`${isMobile ? 'flex-col space-y-3' : 'flex justify-between items-center'}`}>
-                  <CardTitle className={`text-indigo-700 ${isMobile ? 'text-lg' : ''}`}>Performance Summary</CardTitle>
+                  <div className="flex flex-col space-y-2">
+                    <CardTitle className={`text-indigo-700 ${isMobile ? 'text-lg' : ''}`}>Performance Summary</CardTitle>
+                    {backtestResult && (
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline" className="text-xs">
+                          Benchmark: {benchmarkSymbol || 'None'}
+                        </Badge>
+                        <Badge variant="outline" className="text-xs">
+                          Strategy: {strategy === 'buy-hold' ? 'Buy & Hold' : 
+                                   strategy === 'momentum' ? 'Momentum' :
+                                   strategy === 'relative-strength' ? 'Relative Strength' :
+                                   strategy === 'mean-reversion' ? 'Mean Reversion' :
+                                   'Risk Parity'}
+                        </Badge>
+                      </div>
+                    )}
+                  </div>
                   <div className={`flex ${isMobile ? 'flex-col space-y-2' : 'space-x-2'}`}>
                     <Button variant="outline" size={isMobile ? 'default' : 'sm'} className={`flex items-center gap-2 ${isMobile ? 'w-full justify-center min-h-[44px] touch-manipulation' : ''}`}>
                       <Download className="w-4 h-4" />
@@ -1236,7 +1656,7 @@ export default function HomePage() {
                     </div>
                     <div className={`${isMobile ? 'text-xs text-center' : 'text-xs'} text-gray-500`}>
                       {showIndividualAssets 
-                        ? `Showing portfolio + ${Object.keys(holdingsData).length} assets`
+                        ? `Showing portfolio + ${Object.keys(holdingsData).length} asset${Object.keys(holdingsData).length === 1 ? '' : 's'} (price performance)`
                         : 'Showing portfolio only'
                       }
                     </div>
@@ -1248,6 +1668,9 @@ export default function HomePage() {
                   title="Portfolio Performance"
                   holdings={holdingsData}
                   showHoldings={showIndividualAssets}
+                  benchmark={benchmarkData}
+                  benchmarkSymbol={benchmarkSymbol}
+                  showBenchmark={!!benchmarkSymbol && !!benchmarkData}
                   height={isMobile ? 300 : 350}
                   className="mt-2"
                 />
@@ -1350,14 +1773,14 @@ export default function HomePage() {
             {/* Python-Enhanced Asset Performance */}
             {backtestResult && 
              backtestResult.portfolioValue?.length > 0 && 
-             backtestResult.holdings && 
-             Object.keys(backtestResult.holdings).length > 0 && (
+             (backtestResult.holdings || backtestResult.assetPrices) && 
+             Object.keys(backtestResult.holdings || backtestResult.assetPrices || {}).length > 0 && (
               <AssetPerformanceTablePython
                 results={{
                   portfolioValues: backtestResult.portfolioValue,
                   returns: backtestResult.returns || [],
                   dates: backtestResult.dates || [],
-                  weights: convertHoldingsToWeights(backtestResult.holdings),
+                  weights: backtestResult.holdings ? convertHoldingsToWeights(backtestResult.holdings) : {},
                   metrics: {
                     totalReturn: backtestResult.totalReturn || 0,
                     annualizedReturn: backtestResult.annualizedReturn || 0,
@@ -1380,6 +1803,9 @@ export default function HomePage() {
                   return acc;
                 }, {} as Record<string, number>)}
                 preCalculatedAssetPerformance={backtestResult.assetPerformance || []} // Pass pre-calculated data
+                benchmarkSymbol={benchmarkSymbol}
+                strategy={strategy}
+                strategyParameters={strategy !== 'buy-hold' ? strategyParameters[strategy as keyof typeof strategyParameters] : {}}
                 usePython={true}
               />
             )}

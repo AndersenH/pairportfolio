@@ -56,6 +56,7 @@ export interface BacktestConfig {
   startDate: Date;
   endDate: Date;
   initialCapital: number;
+  benchmarkSymbol?: string;
   rebalancingFrequency: RebalancingFrequency;
 }
 

@@ -5,6 +5,7 @@ export const portfolioSchema = z.object({
   name: z.string().min(1, 'Portfolio name is required').max(255),
   description: z.string().max(1000).optional(),
   isPublic: z.boolean().default(false),
+  benchmarkSymbol: z.string().max(20).optional().nullable(),
   initialCapital: z.number().min(1, 'Initial capital must be at least $1').max(1000000000).default(10000),
   holdings: z.array(
     z.object({
@@ -36,6 +37,7 @@ export const backtestSchema = z.object({
   startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Start date must be in YYYY-MM-DD format'),
   endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'End date must be in YYYY-MM-DD format'),
   initialCapital: z.number().min(1, 'Initial capital must be at least $1').max(1000000000).default(10000),
+  benchmarkSymbol: z.string().max(20).optional().nullable(),
   rebalancingFrequency: z.enum(['daily', 'weekly', 'monthly', 'quarterly']).optional(),
   parameters: z.record(z.any()).optional(),
 }).refine((data) => new Date(data.startDate) < new Date(data.endDate), {

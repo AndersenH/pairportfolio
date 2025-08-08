@@ -50,6 +50,7 @@ export interface StrategyConfig {
     
     // Momentum strategy
     topN?: number
+    positiveReturnsOnly?: boolean
     
     // Relative Strength strategy
     benchmarkSymbol?: string
@@ -67,12 +68,14 @@ export interface StrategyParameterConfig {
     lookbackPeriod: number // months (1-12)
     rebalanceFrequency: 'weekly' | 'monthly' | 'quarterly'
     topN: number // 1-10
+    positiveReturnsOnly?: boolean // optional filter for positive returns
   }
   'relative-strength': {
     lookbackPeriod: number // months (1-12)
     rebalanceFrequency: 'weekly' | 'monthly' | 'quarterly'
     topN: number // 1-5
     benchmarkSymbol: string
+    positiveReturnsOnly?: boolean // optional filter for positive returns
   }
   'mean-reversion': {
     lookbackPeriod: number // months (1-6)

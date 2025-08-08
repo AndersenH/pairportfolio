@@ -7,7 +7,18 @@ This maintains compatibility with existing Next.js integration
 import sys
 import json
 import traceback
+from datetime import datetime, timedelta
 from enhanced_backtest_runner import EnhancedBacktestRunner
+
+def get_default_dates():
+    """Calculate default dates: 5-year window ending today (July 28, 2025)"""
+    today = datetime(2025, 7, 28)
+    five_years_ago = today - timedelta(days=5*365)
+    
+    return {
+        'start': five_years_ago.strftime('%Y-%m-%d'),
+        'end': today.strftime('%Y-%m-%d')
+    }
 
 def main():
     """Main entry point that converts old format to new format"""
@@ -55,8 +66,8 @@ def convert_legacy_format(old_data):
     config = {
         'strategy': strategy,
         'portfolio': portfolio,
-        'start_date': old_data.get('start_date', '2020-01-01'),
-        'end_date': old_data.get('end_date', '2023-12-31'),
+        'start_date': old_data.get('start_date', get_default_dates()['start']),
+        'end_date': old_data.get('end_date', get_default_dates()['end']),
         'initial_capital': old_data.get('initial_capital', 10000),
         'rebalancing_frequency': old_data.get('rebalancing_frequency', 'monthly'),
         'include_benchmark': old_data.get('include_benchmark', True)

@@ -112,10 +112,6 @@ class BacktestValidator:
             lookback_period = parameters.get('lookback_period', 60)
             if not isinstance(lookback_period, int) or lookback_period <= 0:
                 parameters['lookback_period'] = 60
-            
-            top_n = parameters.get('top_n', 3)
-            if not isinstance(top_n, int) or top_n <= 0:
-                parameters['top_n'] = 3
         
         elif strategy_type == 'mean_reversion':
             ma_period = parameters.get('ma_period', 50)
@@ -231,15 +227,24 @@ class EnhancedBacktestRunner:
             logger.info("Running backtest engine")
             results = self.backtest_engine.run_backtest(config, aligned_prices)
             
-            # Add benchmark comparison if requested
+            # Add benchmark comparison if requested and benchmark symbol is provided
             include_benchmark = config_dict.get('include_benchmark', True)
-            if include_benchmark:
-                logger.info("Calculating benchmark comparison")
+            benchmark_symbol = config_dict.get('benchmarkSymbol')
+            
+            # Check if benchmark symbol is valid (not null, empty, or whitespace)
+            if include_benchmark and benchmark_symbol and benchmark_symbol.strip():
+                logger.info(f"Calculating benchmark comparison with {benchmark_symbol}")
                 benchmark_comparison = self._calculate_benchmark_comparison(
-                    results.returns, start_date, end_date
+                    results.returns, start_date, end_date, benchmark_symbol.strip()
                 )
                 if benchmark_comparison:
                     results.benchmark_comparison = benchmark_comparison.__dict__
+                else:
+                    logger.warning(f"Failed to calculate benchmark comparison with {benchmark_symbol}")
+                    results.benchmark_comparison = None
+            else:
+                logger.info("Skipping benchmark comparison - no benchmark symbol provided or include_benchmark is False")
+                results.benchmark_comparison = None
             
             # Extract individual asset price data for enhanced calculations
             asset_prices = {}
@@ -298,9 +303,19 @@ class EnhancedBacktestRunner:
         portfolio_returns: List[float], 
         start_date: str, 
         end_date: str,
-        benchmark_symbol: str = 'SPY'
+        benchmark_symbol: str
     ) -> Optional[Any]:
         """Calculate benchmark comparison"""
+        
+        # Early validation
+        if not benchmark_symbol or not benchmark_symbol.strip():
+            logger.warning("Invalid benchmark symbol provided")
+            return None
+            
+        if not portfolio_returns or len(portfolio_returns) == 0:
+            logger.warning("No portfolio returns provided for benchmark comparison")
+            return None
+        
         try:
             # Fetch benchmark data
             benchmark_data = self.data_service.get_historical_data(
@@ -313,15 +328,29 @@ class EnhancedBacktestRunner:
             
             # Calculate benchmark returns
             benchmark_prices = benchmark_data['adj_close'] if 'adj_close' in benchmark_data.columns else benchmark_data['close']
+            
+            if benchmark_prices.empty:
+                logger.warning(f"No price data available for benchmark {benchmark_symbol}")
+                return None
+                
             benchmark_returns = benchmark_prices.pct_change().fillna(0).tolist()
             
+            if not benchmark_returns or len(benchmark_returns) == 0:
+                logger.warning(f"Could not calculate returns for benchmark {benchmark_symbol}")
+                return None
+            
             # Calculate comparison metrics
-            return self.metrics_calculator.calculate_benchmark_comparison(
+            comparison_result = self.metrics_calculator.calculate_benchmark_comparison(
                 portfolio_returns, benchmark_returns, benchmark_symbol
             )
             
+            if comparison_result is None:
+                logger.warning(f"Benchmark comparison calculation failed for {benchmark_symbol}")
+                
+            return comparison_result
+            
         except Exception as e:
-            logger.error(f"Error calculating benchmark comparison: {str(e)}")
+            logger.error(f"Error calculating benchmark comparison with {benchmark_symbol}: {str(e)}")
             return None
     
     def validate_input(self, input_data: str) -> Dict[str, Any]:

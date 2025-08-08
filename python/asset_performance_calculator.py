@@ -122,6 +122,11 @@ class AssetPerformanceCalculator:
             initial_weight = asset_weights[0] if len(asset_weights) > 0 else 0.0
             final_weight = asset_weights[-1] if len(asset_weights) > 0 else 0.0
             
+            # Calculate percentage time invested (weight > 0)
+            periods_invested = np.sum(asset_weights > 0.001)  # Use small threshold for rounding
+            total_periods = len(asset_weights)
+            percentage_time_invested = periods_invested / total_periods if total_periods > 0 else 0.0
+            
             # Use real asset prices only - never fall back to simulated data
             if asset_prices is not None and len(asset_prices) > 1:
                 asset_returns = self._calculate_returns_from_prices(asset_prices)
@@ -164,7 +169,8 @@ class AssetPerformanceCalculator:
                 'sharpeRatio': float(sharpe_ratio),
                 'maxDrawdown': float(max_drawdown),
                 'contribution': float(contribution),
-                'allocation': float(target_allocation)
+                'allocation': float(target_allocation),
+                'percentageTimeInvested': float(percentage_time_invested)
             }
             
         except Exception as e:
@@ -278,7 +284,8 @@ class AssetPerformanceCalculator:
             'sharpeRatio': 0.0,
             'maxDrawdown': 0.0,
             'contribution': 0.0,
-            'allocation': float(allocation)
+            'allocation': float(allocation),
+            'percentageTimeInvested': 0.0
         }
 
 def main():

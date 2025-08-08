@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import { useForm, useFieldArray } from 'react-hook-form'
+import { useForm, useFieldArray, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { Button } from '@/components/ui/button'
@@ -14,12 +14,17 @@ import {
   Search,
   AlertCircle,
   CheckCircle,
+  ChevronDown,
+  TrendingUp,
+  Info,
 } from 'lucide-react'
+import { cn } from '@/lib/client-utils'
 
 const portfolioSchema = z.object({
   name: z.string().min(1, 'Portfolio name is required'),
   description: z.string().optional(),
   isPublic: z.boolean().default(false),
+  benchmarkSymbol: z.string().optional().nullable(),
   holdings: z.array(
     z.object({
       symbol: z.string().min(1, 'ETF symbol is required'),
@@ -51,6 +56,257 @@ const mockETFs = [
   { symbol: 'TLT', name: 'iShares 20+ Year Treasury Bond ETF' },
 ]
 
+// Benchmark categories based on benchmark_service.py
+interface BenchmarkOption {
+  symbol: string
+  name: string
+}
+
+interface BenchmarkCategory {
+  name: string
+  description: string
+  benchmarks: BenchmarkOption[]
+}
+
+const benchmarkCategories: BenchmarkCategory[] = [
+  {
+    name: 'No Benchmark',
+    description: 'Compare portfolio performance without a benchmark',
+    benchmarks: [
+      { symbol: '', name: 'None - No benchmark comparison' }
+    ]
+  },
+  {
+    name: 'Market Indexes',
+    description: 'Broad market benchmarks',
+    benchmarks: [
+      { symbol: 'SPY', name: 'S&P 500 ETF' },
+      { symbol: 'QQQ', name: 'NASDAQ 100 ETF' },
+      { symbol: 'IWM', name: 'Russell 2000 ETF' },
+      { symbol: 'VTI', name: 'Total Stock Market ETF' },
+      { symbol: 'VTSMX', name: 'Vanguard Total Stock Market Index' },
+      { symbol: 'DIA', name: 'Dow Jones Industrial Average ETF' },
+      { symbol: 'MDY', name: 'Mid-Cap ETF' },
+    ]
+  },
+  {
+    name: 'Sector ETFs',
+    description: 'Sector-specific benchmarks',
+    benchmarks: [
+      { symbol: 'XLF', name: 'Financial Sector ETF' },
+      { symbol: 'XLK', name: 'Technology Sector ETF' },
+      { symbol: 'XLE', name: 'Energy Sector ETF' },
+      { symbol: 'XLV', name: 'Healthcare Sector ETF' },
+      { symbol: 'XLI', name: 'Industrial Sector ETF' },
+      { symbol: 'XLP', name: 'Consumer Staples ETF' },
+      { symbol: 'XLY', name: 'Consumer Discretionary ETF' },
+      { symbol: 'XLU', name: 'Utilities Sector ETF' },
+      { symbol: 'XLB', name: 'Materials Sector ETF' },
+      { symbol: 'XLRE', name: 'Real Estate Sector ETF' },
+      { symbol: 'XLC', name: 'Communication Services ETF' },
+    ]
+  },
+  {
+    name: 'International',
+    description: 'International market benchmarks',
+    benchmarks: [
+      { symbol: 'VEA', name: 'Developed Markets ETF' },
+      { symbol: 'VWO', name: 'Emerging Markets ETF' },
+      { symbol: 'EFA', name: 'EAFE ETF' },
+      { symbol: 'EEM', name: 'Emerging Markets ETF' },
+      { symbol: 'VGK', name: 'European ETF' },
+      { symbol: 'VPL', name: 'Pacific ETF' },
+      { symbol: 'IEMG', name: 'Core MSCI Emerging Markets ETF' },
+      { symbol: 'IEFA', name: 'Core MSCI EAFE ETF' },
+    ]
+  },
+  {
+    name: 'Asset Classes',
+    description: 'Multi-asset class benchmarks',
+    benchmarks: [
+      // Fixed Income
+      { symbol: 'BND', name: 'Total Bond Market' },
+      { symbol: 'AGG', name: 'Aggregate Bonds' },
+      { symbol: 'TLT', name: 'Long-Term Treasury' },
+      { symbol: 'SHY', name: 'Short-Term Treasury' },
+      { symbol: 'LQD', name: 'Investment Grade Corporate' },
+      { symbol: 'HYG', name: 'High Yield Corporate' },
+      // Commodities
+      { symbol: 'GLD', name: 'Gold' },
+      { symbol: 'SLV', name: 'Silver' },
+      { symbol: 'DJP', name: 'Commodities' },
+      { symbol: 'USO', name: 'Oil' },
+      // Real Estate
+      { symbol: 'VNQ', name: 'REITs' },
+    ]
+  }
+]
+
+// Benchmark Selector Component
+interface BenchmarkSelectorProps {
+  value: string | null | undefined
+  onValueChange: (value: string | null) => void
+  error?: string
+  className?: string
+}
+
+function BenchmarkSelector({ value, onValueChange, error, className }: BenchmarkSelectorProps) {
+  const [isOpen, setIsOpen] = React.useState(false)
+  const [searchTerm, setSearchTerm] = React.useState('')
+  
+  const selectedBenchmark = React.useMemo(() => {
+    if (!value) {
+      return { symbol: '', name: 'None - No benchmark comparison' }
+    }
+    for (const category of benchmarkCategories) {
+      const benchmark = category.benchmarks.find(b => b.symbol === value)
+      if (benchmark) return benchmark
+    }
+    return { symbol: value, name: 'Unknown Benchmark' }
+  }, [value])
+
+  const filteredCategories = React.useMemo(() => {
+    if (!searchTerm) return benchmarkCategories
+    
+    return benchmarkCategories.map(category => ({
+      ...category,
+      benchmarks: category.benchmarks.filter(benchmark =>
+        benchmark.symbol.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        benchmark.name.toLowerCase().includes(searchTerm.toLowerCase())
+      )
+    })).filter(category => category.benchmarks.length > 0)
+  }, [searchTerm])
+
+  const handleSelect = (symbol: string) => {
+    onValueChange(symbol || null)
+    setIsOpen(false)
+    setSearchTerm('')
+  }
+
+  return (
+    <div className={cn('relative', className)}>
+      <div className="space-y-1">
+        <label className="text-sm font-medium">Benchmark (Optional)</label>
+        <div className="relative">
+          <Button
+            type="button"
+            variant="outline"
+            className={cn(
+              'w-full justify-between',
+              error && 'border-destructive'
+            )}
+            onClick={() => setIsOpen(!isOpen)}
+          >
+            <div className="flex items-center gap-2">
+              <TrendingUp className="h-4 w-4" />
+              {selectedBenchmark.symbol ? (
+                <>
+                  <span className="font-mono">{selectedBenchmark.symbol}</span>
+                  <span className="text-muted-foreground">- {selectedBenchmark.name}</span>
+                </>
+              ) : (
+                <span className="text-muted-foreground">{selectedBenchmark.name}</span>
+              )}
+            </div>
+            <ChevronDown className={cn(
+              'h-4 w-4 transition-transform',
+              isOpen && 'rotate-180'
+            )} />
+          </Button>
+          
+          {isOpen && (
+            <>
+              <div
+                className="fixed inset-0 bg-transparent z-40"
+                onClick={() => setIsOpen(false)}
+              />
+              <div className="absolute top-full left-0 right-0 mt-1 bg-background border rounded-md shadow-lg z-50 max-h-96 overflow-hidden">
+                <div className="p-3 border-b">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 h-4 w-4 text-muted-foreground -translate-y-1/2" />
+                    <Input
+                      placeholder="Search benchmarks..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="pl-10"
+                    />
+                  </div>
+                </div>
+                
+                <div className="max-h-80 overflow-y-auto">
+                  {filteredCategories.map((category) => (
+                    <div key={category.name} className="border-b last:border-b-0">
+                      <div className="sticky top-0 bg-muted/50 px-3 py-2 border-b">
+                        <div className="flex items-center gap-2">
+                          <h4 className="font-medium text-sm">{category.name}</h4>
+                          <div className="group relative">
+                            <Info className="h-3 w-3 text-muted-foreground cursor-help" />
+                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block w-48 p-2 bg-popover border rounded-md shadow-md z-10">
+                              <p className="text-xs text-popover-foreground">{category.description}</p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-1 gap-0">
+                        {category.benchmarks.map((benchmark) => (
+                          <button
+                            key={benchmark.symbol}
+                            type="button"
+                            className={cn(
+                              'w-full text-left px-3 py-2 hover:bg-muted/50 transition-colors border-b last:border-b-0',
+                              value === benchmark.symbol && 'bg-primary/10 border-primary/20'
+                            )}
+                            onClick={() => handleSelect(benchmark.symbol)}
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono text-sm font-medium">
+                                  {benchmark.symbol}
+                                </span>
+                                <span className="text-sm text-muted-foreground">
+                                  {benchmark.name}
+                                </span>
+                              </div>
+                              {value === benchmark.symbol && (
+                                <CheckCircle className="h-4 w-4 text-primary" />
+                              )}
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                  
+                  {filteredCategories.length === 0 && (
+                    <div className="p-6 text-center text-muted-foreground">
+                      <Search className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                      <p className="text-sm">No benchmarks found matching "{searchTerm}"</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+        
+        {error && (
+          <p className="text-sm text-destructive">{error}</p>
+        )}
+        
+        <p className="text-xs text-muted-foreground">
+          Choose a benchmark to compare your portfolio performance against, or select "None" to track absolute performance only
+        </p>
+      </div>
+    </div>
+  )
+}
+
+// Export the BenchmarkSelector for use in other components
+export { BenchmarkSelector }
+
+// Export the benchmark categories for external usage
+export { benchmarkCategories }
+
 // Temporarily adding backtest components here - will be moved to separate files
 
 // =============================================================================
@@ -81,6 +337,7 @@ interface BacktestPortfolio {
   id: string
   name: string
   description?: string
+  benchmarkSymbol?: string
   holdings: Array<{
     symbol: string
     allocation: number
@@ -118,14 +375,10 @@ import {
   CalendarIcon, 
   Play, 
   Settings, 
-  AlertCircle, 
-  TrendingUp, 
-  Slider as SliderIcon,
+  Sliders as SliderIcon,
   Minus, 
-  Plus, 
-  Info, 
   AlertTriangle,
-  Portfolio as PortfolioIcon,
+  Briefcase as PortfolioIcon,
   BarChart3,
   TrendingDown,
   X,
@@ -763,6 +1016,7 @@ export const mockPortfoliosForBacktest = [
     id: '1',
     name: 'Growth Portfolio',
     description: 'High-growth technology and innovation focus',
+    benchmarkSymbol: 'QQQ', // NASDAQ 100 for tech-focused portfolio
     holdings: [
       { symbol: 'QQQ', allocation: 0.4 },
       { symbol: 'VTI', allocation: 0.3 },
@@ -774,6 +1028,7 @@ export const mockPortfoliosForBacktest = [
     id: '2',
     name: 'Balanced Portfolio',
     description: 'Diversified mix of stocks and bonds',
+    benchmarkSymbol: 'SPY', // S&P 500 for balanced portfolio
     holdings: [
       { symbol: 'SPY', allocation: 0.4 },
       { symbol: 'BND', allocation: 0.3 },
@@ -785,6 +1040,7 @@ export const mockPortfoliosForBacktest = [
     id: '3',
     name: 'Conservative Portfolio',
     description: 'Low-risk with focus on bonds and dividends',
+    benchmarkSymbol: null, // No benchmark - track absolute performance only
     holdings: [
       { symbol: 'BND', allocation: 0.5 },
       { symbol: 'TLT', allocation: 0.2 },
@@ -822,6 +1078,51 @@ export const mockBacktestResults = {
   }
 }
 
+// =============================================================================
+// BENCHMARK SELECTOR USAGE EXAMPLES
+// =============================================================================
+
+/*
+Example usage of the BenchmarkSelector component:
+
+import { BenchmarkSelector, benchmarkCategories } from '@/components/portfolio/portfolio-form'
+
+// Basic usage with optional benchmark
+<BenchmarkSelector
+  value={null} // or "SPY" for a specific benchmark
+  onValueChange={(symbol) => console.log('Selected:', symbol)}
+/>
+
+// With form control
+<Controller
+  control={form.control}
+  name="benchmarkSymbol"
+  render={({ field, fieldState }) => (
+    <BenchmarkSelector
+      value={field.value}
+      onValueChange={field.onChange}
+      error={fieldState.error?.message}
+    />
+  )}
+/>
+
+// Available benchmark categories:
+- No Benchmark: None - track absolute performance only
+- Market Indexes: SPY, QQQ, IWM, VTI, etc.
+- Sector ETFs: XLF, XLK, XLE, XLV, etc.
+- International: VEA, VWO, EFA, EEM, etc.
+- Asset Classes: BND, TLT, GLD, VNQ, etc.
+
+The component provides:
+1. Searchable dropdown with categorized options
+2. Optional benchmark selection (can be None/null)
+3. TypeScript support with proper error handling
+4. Responsive design for mobile/desktop
+5. Integration with react-hook-form
+6. Tooltips for category descriptions
+7. Visual indicators for selected benchmarks
+*/
+
 export function PortfolioForm({
   initialData,
   onSubmit,
@@ -838,6 +1139,7 @@ export function PortfolioForm({
       name: initialData?.name || '',
       description: initialData?.description || '',
       isPublic: initialData?.isPublic || false,
+      benchmarkSymbol: initialData?.benchmarkSymbol || null,
       holdings: initialData?.holdings || [{ symbol: '', allocation: 0 }],
     },
   })
@@ -929,17 +1231,37 @@ export function PortfolioForm({
             </div>
           </div>
 
-          {/* Public/Private Toggle */}
-          <div className="flex items-center space-x-2">
-            <input
-              type="checkbox"
-              {...form.register('isPublic')}
-              className="rounded border-gray-300"
+          {/* Benchmark Selection */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Controller
+              control={form.control}
+              name="benchmarkSymbol"
+              render={({ field, fieldState }) => (
+                <BenchmarkSelector
+                  value={field.value}
+                  onValueChange={field.onChange}
+                  error={fieldState.error?.message}
+                />
+              )}
             />
-            <label className="text-sm font-medium">
-              Make this portfolio public
-            </label>
+            <div className="space-y-1">
+              <label className="text-sm font-medium">Settings</label>
+              <div className="flex items-center space-x-2 mt-2">
+                <input
+                  type="checkbox"
+                  {...form.register('isPublic')}
+                  className="rounded border-gray-300"
+                />
+                <label className="text-sm font-medium">
+                  Make this portfolio public
+                </label>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Public portfolios can be viewed by other users
+              </p>
+            </div>
           </div>
+
 
           {/* Holdings Section */}
           <div>

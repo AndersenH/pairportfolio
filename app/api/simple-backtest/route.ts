@@ -9,7 +9,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     console.log('Simple backtest request received:', { body })
     
-    const { name, holdings, startDate, endDate, initialCapital = 10000, strategy = 'buy-hold' } = body
+    const { name, holdings, startDate, endDate, initialCapital = 10000, benchmarkSymbol = null, strategy = 'buy-hold' } = body
     
     // Basic validation
     if (!holdings || !Array.isArray(holdings) || holdings.length === 0) {
@@ -36,8 +36,10 @@ export async function POST(request: NextRequest) {
       startDate: startDate,
       endDate: endDate,
       initialCapital: initialCapital,
+      benchmarkSymbol: benchmarkSymbol,
       parameters: {
-        rebalanceFrequency: 'monthly' // Default rebalancing frequency
+        rebalanceFrequency: 'monthly', // Default rebalancing frequency
+        benchmark_symbol: benchmarkSymbol // Pass benchmark to strategy parameters (null if none provided)
       },
       metadata: {
         request_id: `simple-${Date.now()}`,
