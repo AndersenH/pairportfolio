@@ -6,9 +6,9 @@ import {
   createApiResponse, 
   createApiError, 
   validateRequestBody,
-  validateETFSymbol,
-  requireAuth
+  validateETFSymbol
 } from '@/lib/utils'
+import { requireAuth } from '@/lib/server-utils'
 
 interface RouteParams {
   params: {
@@ -67,7 +67,13 @@ export const GET = withApiHandler(
       )
     }
 
-    const response = createApiResponse(portfolio)
+    const response = {
+      success: true,
+      data: portfolio,
+      meta: {
+        timestamp: new Date().toISOString()
+      }
+    }
     return NextResponse.json(response)
   },
   {

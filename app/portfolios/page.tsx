@@ -1,8 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useSession } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
+import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -47,37 +47,55 @@ interface Portfolio {
 }
 
 export default function PortfoliosPage() {
-  const { data: session, status } = useSession()
   const router = useRouter()
+  const [user, setUser] = useState<any>(null)
   const [portfolios, setPortfolios] = useState<Portfolio[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const supabase = createClient()
 
-  // Redirect to sign in if not authenticated
+  // Check authentication and fetch user
   useEffect(() => {
-    if (status === 'unauthenticated') {
-      router.push('/auth/signin')
+    const checkUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        router.push('/auth/login')
+      } else {
+        setUser(user)
+        fetchPortfolios()
+      }
     }
-  }, [status, router])
+    checkUser()
 
-  // Fetch portfolios
-  useEffect(() => {
-    if (session) {
-      fetchPortfolios()
-    }
-  }, [session])
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_OUT') {
+        router.push('/auth/login')
+      } else if (session?.user) {
+        setUser(session.user)
+        fetchPortfolios()
+      }
+    })
+
+    return () => subscription.unsubscribe()
+  }, [router])
 
   const fetchPortfolios = async () => {
     try {
       setIsLoading(true)
+      console.log('Fetching portfolios...')
       const response = await fetch('/api/portfolios')
       
+      console.log('Response status:', response.status)
+      
       if (!response.ok) {
-        throw new Error('Failed to fetch portfolios')
+        const errorData = await response.json()
+        console.error('API Error:', errorData)
+        throw new Error(errorData.error?.message || 'Failed to fetch portfolios')
       }
 
       const result = await response.json()
+      console.log('Portfolios fetched:', result)
       setPortfolios(result.data || [])
     } catch (error) {
       console.error('Error fetching portfolios:', error)
@@ -142,7 +160,7 @@ export default function PortfoliosPage() {
     )
   )
 
-  if (status === 'loading' || !session) {
+  if (isLoading && !user) {
     return (
       <div className="container mx-auto px-4 py-8">
         <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">

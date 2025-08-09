@@ -3,9 +3,9 @@ import { BacktestService } from '@/lib/backtest-service'
 import { 
   withApiHandler, 
   createApiResponse, 
-  createApiError, 
-  requireAuth
+  createApiError
 } from '@/lib/utils'
+import { requireAuth } from '@/lib/server-utils'
 
 interface RouteParams {
   params: {

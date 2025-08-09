@@ -12,6 +12,11 @@ interface BacktestParams {
   benchmarkSymbol?: string
   rebalancingFrequency?: string
   parameters?: Record<string, any>
+  customHoldings?: Array<{
+    symbol: string
+    allocation: number
+    name?: string
+  }>
 }
 
 interface BacktestResult {
@@ -91,21 +96,45 @@ export class BacktestService {
       throw new Error('End date must be after start date')
     }
 
-    // Create backtest record
-    const backtest = await prisma.backtest.create({
-      data: {
-        userId: params.userId,
-        portfolioId: params.portfolioId,
-        strategyId: params.strategyId,
-        name: params.name || `${portfolio.name} - ${strategy.name}`,
-        startDate: startDate,
-        endDate: endDate,
-        initialCapital: params.initialCapital,
-        benchmarkSymbol: params.benchmarkSymbol,
-        rebalancingFrequency: params.rebalancingFrequency || 'monthly',
-        parameters: params.parameters || {},
-        status: 'pending',
-      },
+    // Determine holdings to use - custom or portfolio default
+    const holdingsToUse = params.customHoldings && params.customHoldings.length > 0 
+      ? params.customHoldings 
+      : portfolio.holdings.map(h => ({ 
+          symbol: h.symbol, 
+          allocation: h.allocation, 
+          name: h.name 
+        }))
+
+    // Create backtest record with holdings in a transaction
+    const backtest = await prisma.$transaction(async (tx) => {
+      // Create the backtest
+      const newBacktest = await tx.backtest.create({
+        data: {
+          userId: params.userId,
+          portfolioId: params.portfolioId,
+          strategyId: params.strategyId,
+          name: params.name || `${portfolio.name} - ${strategy.name}`,
+          startDate: startDate,
+          endDate: endDate,
+          initialCapital: params.initialCapital,
+          benchmarkSymbol: params.benchmarkSymbol,
+          rebalancingFrequency: params.rebalancingFrequency || 'monthly',
+          parameters: params.parameters || {},
+          status: 'pending',
+        },
+      })
+
+      // Create backtest holdings
+      await tx.backtestHolding.createMany({
+        data: holdingsToUse.map(holding => ({
+          backtestId: newBacktest.id,
+          symbol: holding.symbol,
+          allocation: holding.allocation,
+          name: holding.name || null,
+        })),
+      })
+
+      return newBacktest
     })
 
     // Start backtest execution asynchronously
@@ -131,6 +160,7 @@ export class BacktestService {
         },
         strategy: true,
         performanceMetrics: true,
+        holdings: true,
       },
     })
   }
@@ -162,6 +192,7 @@ export class BacktestService {
             },
           },
           performanceMetrics: true,
+          holdings: true,
         },
         orderBy: { [sortBy]: sortOrder },
         skip: offset,
@@ -211,6 +242,7 @@ export class BacktestService {
             },
           },
           strategy: true,
+          holdings: true,
         },
       })
 
@@ -218,8 +250,9 @@ export class BacktestService {
         throw new Error('Backtest not found')
       }
 
-      // Get market data for all symbols
-      const symbols = backtest.portfolio.holdings.map(h => h.symbol)
+      // Get market data for all symbols - use backtest holdings (custom or default)
+      const holdingsToAnalyze = backtest.holdings.length > 0 ? backtest.holdings : backtest.portfolio.holdings
+      const symbols = holdingsToAnalyze.map(h => h.symbol)
       const period = this.calculatePeriod(backtest.startDate, backtest.endDate)
       
       const marketData = await this.marketDataService.getBulkHistoricalData(
@@ -233,10 +266,10 @@ export class BacktestService {
       
       switch (backtest.strategy.type) {
         case 'buy_hold':
-          result = await this.executeBuyHoldBacktest(backtest, marketData)
+          result = await this.executeBuyHoldBacktest(backtest, marketData, holdingsToAnalyze)
           break
         case 'momentum':
-          result = await this.executeMomentumBacktest(backtest, marketData)
+          result = await this.executeMomentumBacktest(backtest, marketData, holdingsToAnalyze)
           break
         default:
           throw new Error(`Unsupported strategy type: ${backtest.strategy.type}`)
@@ -260,7 +293,8 @@ export class BacktestService {
 
   private async executeBuyHoldBacktest(
     backtest: any,
-    marketData: Record<string, any[]>
+    marketData: Record<string, any[]>,
+    holdings: any[]
   ): Promise<BacktestResult> {
     const startDate = new Date(backtest.startDate)
     const endDate = new Date(backtest.endDate)
@@ -279,7 +313,6 @@ export class BacktestService {
     const sortedDates = Array.from(allDates).sort()
     
     // Initialize portfolio
-    const holdings = backtest.portfolio.holdings
     const portfolioValue: number[] = []
     const holdingsValue: Record<string, number[]> = {}
     
@@ -333,11 +366,12 @@ export class BacktestService {
 
   private async executeMomentumBacktest(
     backtest: any,
-    marketData: Record<string, any[]>
+    marketData: Record<string, any[]>,
+    holdings: any[]
   ): Promise<BacktestResult> {
     // Implement momentum strategy
     // This is a simplified version - would need more sophisticated implementation
-    return this.executeBuyHoldBacktest(backtest, marketData)
+    return this.executeBuyHoldBacktest(backtest, marketData, holdings)
   }
 
   private calculatePerformanceMetrics(

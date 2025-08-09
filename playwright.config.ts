@@ -119,4 +119,11 @@ export default defineConfig({
   // Global setup and teardown
   globalSetup: require.resolve('./tests/e2e/global-setup.ts'),
   globalTeardown: require.resolve('./tests/e2e/global-teardown.ts'),
+
+  // Test metadata
+  metadata: {
+    'test-type': 'e2e',
+    'app-name': 'ETF Portfolio Backtesting',
+    'test-framework': 'playwright'
+  },
 });

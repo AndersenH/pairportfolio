@@ -879,47 +879,6 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-indigo-700 text-white shadow-lg">
-        <div className="container mx-auto px-4 py-4 md:py-6">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center space-x-2">
-              <TrendingUp className={`${isMobile ? 'w-6 h-6' : 'w-8 h-8'}`} />
-              <h1 className={`${isMobile ? 'text-xl' : 'text-2xl'} font-bold`}>ETF Replay</h1>
-            </div>
-            
-            {/* Desktop Navigation */}
-            <nav className="hidden md:flex space-x-6">
-              <Link href="#" className="hover:text-indigo-200 transition">Home</Link>
-              <Link href="#" className="hover:text-indigo-200 transition">Explore ETFs</Link>
-              <Link href="#" className="hover:text-indigo-200 transition">Strategies</Link>
-              <Link href="#" className="hover:text-indigo-200 transition">About</Link>
-            </nav>
-
-            {/* Mobile Menu Button */}
-            <button
-              className="md:hidden p-2 hover:bg-indigo-600 rounded transition"
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              aria-label="Toggle menu"
-            >
-              <Menu className="w-5 h-5" />
-            </button>
-          </div>
-
-          {/* Mobile Navigation */}
-          {mobileMenuOpen && (
-            <nav className="md:hidden mt-4 pt-4 border-t border-indigo-600">
-              <div className="flex flex-col space-y-3">
-                <Link href="#" className="hover:text-indigo-200 transition py-2">Home</Link>
-                <Link href="#" className="hover:text-indigo-200 transition py-2">Explore ETFs</Link>
-                <Link href="#" className="hover:text-indigo-200 transition py-2">Strategies</Link>
-                <Link href="#" className="hover:text-indigo-200 transition py-2">About</Link>
-              </div>
-            </nav>
-          )}
-        </div>
-      </header>
-
       {/* Main Content */}
       <main className={`container mx-auto px-4 ${isMobile ? 'py-4' : 'py-8'}`}>
         <div className={`grid gap-6 ${isMobile ? 'grid-cols-1' : 'grid-cols-1 lg:grid-cols-3 gap-8'}`}>

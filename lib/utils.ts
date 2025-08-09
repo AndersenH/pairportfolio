@@ -1,8 +1,6 @@
 import { type ClassValue, clsx } from 'clsx'
 import { twMerge } from 'tailwind-merge'
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
 // Note: redis import moved to server-only files to avoid client-side issues
 import { z } from 'zod'
 import bcrypt from 'bcryptjs'
@@ -70,42 +68,9 @@ export function createApiError(code: string, message: string, details?: any, sta
   )
 }
 
-// Authentication middleware
-export async function requireAuth(request: NextRequest) {
-  const session = await getServerSession(authOptions)
-  
-  if (!session?.user?.id) {
-    throw new Error('Unauthorized')
-  }
-  
-  return session.user
-}
+// Note: Authentication middleware moved to server-utils.ts to avoid client-side imports
 
-// Rate limiting middleware
-export async function applyRateLimit(
-  request: NextRequest,
-  identifier?: string,
-  limit: number = 100,
-  windowMs: number = 60000
-): Promise<{ allowed: boolean; remaining: number; resetTime: number }> {
-  try {
-    // Import redis rate limit here to avoid client-side issues
-    const { rateLimit } = await import('@/lib/redis')
-    
-    // Use IP address as identifier if not provided
-    const rateLimitId = identifier || request.ip || 'anonymous'
-    
-    return await rateLimit.check(rateLimitId, limit, windowMs)
-  } catch (error) {
-    console.error('Rate limit error:', error)
-    // Default to allowing request on error
-    return {
-      allowed: true,
-      remaining: limit - 1,
-      resetTime: Date.now() + windowMs
-    }
-  }
-}
+// Rate limiting middleware moved to server-utils.ts to avoid client-side Redis imports
 
 // Validation middleware
 export function validateRequestBody<T>(schema: z.ZodSchema<T>) {
@@ -153,8 +118,9 @@ export function withApiHandler(
         return createApiError('METHOD_NOT_ALLOWED', 'Method not allowed', null, 405)
       }
 
-      // Rate limiting
+      // Rate limiting - import server-only function dynamically
       if (options.rateLimit) {
+        const { applyRateLimit } = await import('@/lib/server-utils')
         const rateLimitResult = await applyRateLimit(
           request,
           undefined,
@@ -169,8 +135,9 @@ export function withApiHandler(
         headers.set('X-RateLimit-Reset', rateLimitResult.resetTime.toString())
       }
 
-      // Authentication
+      // Authentication - import server-only function dynamically
       if (options.requireAuth) {
+        const { requireAuth } = await import('@/lib/server-utils')
         await requireAuth(request)
       }
 

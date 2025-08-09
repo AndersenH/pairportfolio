@@ -7,9 +7,9 @@ import {
   createApiResponse, 
   createApiError, 
   validateRequestBody,
-  validateETFSymbol,
-  requireAuth
+  validateETFSymbol
 } from '@/lib/utils'
+import { requireAuth } from '@/lib/server-utils'
 
 interface RouteParams {
   params: {

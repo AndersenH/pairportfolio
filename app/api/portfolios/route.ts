@@ -8,9 +8,9 @@ import {
   validateRequestBody, 
   validateQueryParams,
   createPaginationMeta,
-  validateETFSymbol,
-  requireAuth
+  validateETFSymbol
 } from '@/lib/utils'
+import { requireAuth } from '@/lib/server-utils'
 import { z } from 'zod'
 
 export const GET = withApiHandler(
@@ -58,10 +58,14 @@ export const GET = withApiHandler(
       }),
     ])
 
-    const response = createApiResponse(
-      portfolios,
-      createPaginationMeta(page, limit, total)
-    )
+    const response = {
+      success: true,
+      data: portfolios,
+      meta: {
+        ...createPaginationMeta(page, limit, total),
+        timestamp: new Date().toISOString()
+      }
+    }
 
     return NextResponse.json(response)
   },
@@ -74,8 +78,11 @@ export const GET = withApiHandler(
 
 export const POST = withApiHandler(
   async (request: NextRequest) => {
+    console.log('POST /api/portfolios - Starting')
     const user = await requireAuth(request)
+    console.log('User authenticated:', user)
     const validatedData = await validateRequestBody(portfolioSchema)(request)
+    console.log('Data validated:', validatedData)
 
     // Validate that allocations sum to 1.0 (100%)
     const totalAllocation = validatedData.holdings.reduce(
@@ -110,7 +117,6 @@ export const POST = withApiHandler(
         name: validatedData.name,
         description: validatedData.description,
         isPublic: validatedData.isPublic,
-        initialCapital: validatedData.initialCapital || 10000,
         userId: user.id,
         holdings: {
           create: validatedData.holdings.map((holding) => ({
@@ -124,15 +130,20 @@ export const POST = withApiHandler(
         user: {
           select: {
             id: true,
-            firstName: true,
-            lastName: true,
+            name: true,
             email: true,
           },
         },
       },
     })
 
-    const response = createApiResponse(portfolio)
+    const response = {
+      success: true,
+      data: portfolio,
+      meta: {
+        timestamp: new Date().toISOString()
+      }
+    }
     return NextResponse.json(response, { status: 201 })
   },
   {

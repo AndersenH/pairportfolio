@@ -8,9 +8,9 @@ import {
   createApiError, 
   validateRequestBody,
   validateQueryParams,
-  createPaginationMeta,
-  requireAuth
+  createPaginationMeta
 } from '@/lib/utils'
+import { requireAuth } from '@/lib/server-utils'
 
 const backtestService = new BacktestService()
 
@@ -93,14 +93,19 @@ export const POST = withApiHandler(
         strategyId,
         userId: user.id,
         initialCapital: validatedData.initialCapital || 10000,
-        benchmarkSymbol: validatedData.benchmarkSymbol || null,
+        benchmarkSymbol: validatedData.benchmarkSymbol || undefined,
+        customHoldings: validatedData.customHoldings,
       })
+
+      // Get the created backtest with holdings
+      const createdBacktest = await backtestService.getBacktest(backtestId, user.id)
 
       const response = createApiResponse(
         { 
           id: backtestId,
           status: 'pending',
-          message: 'Backtest created and queued for execution'
+          message: 'Backtest created and queued for execution',
+          backtest: createdBacktest
         }
       )
 

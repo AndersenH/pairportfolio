@@ -5,7 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getConfig } from '@/lib/config';
-import { redisClient } from '@/lib/redis';
+import { redisClient } from '@/lib/redis-server';
 
 interface HealthCheckResult {
   status: 'healthy' | 'unhealthy' | 'degraded';
@@ -131,7 +131,11 @@ async function checkRedis(): Promise<CheckResult> {
     const config = getConfig();
     
     // Test Redis connection with exists check (more compatible)
-    await redisClient.exists('health_check');
+    if (redisClient) {
+      await redisClient.exists('health_check');
+    } else {
+      throw new Error('Redis client not available');
+    }
     
     return {
       status: 'pass',

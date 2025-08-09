@@ -8,6 +8,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { SearchDropdown } from '@/components/ui/search-dropdown'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import {
   Plus,
   Trash2,
@@ -17,8 +19,47 @@ import {
   ChevronDown,
   TrendingUp,
   Info,
+  Settings,
+  RotateCcw,
+  Edit3,
 } from 'lucide-react'
 import { cn } from '@/lib/client-utils'
+import type { PortfolioWithHoldings } from '@/types'
+
+// Simple Switch component since it's not in the UI library
+function Switch({ 
+  checked, 
+  onCheckedChange, 
+  className,
+  disabled = false 
+}: {
+  checked: boolean
+  onCheckedChange: (checked: boolean) => void
+  className?: string
+  disabled?: boolean
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      disabled={disabled}
+      className={cn(
+        "peer inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50",
+        checked ? "bg-primary" : "bg-input",
+        className
+      )}
+      onClick={() => onCheckedChange(!checked)}
+    >
+      <span
+        className={cn(
+          "pointer-events-none block h-5 w-5 rounded-full bg-background shadow-lg ring-0 transition-transform",
+          checked ? "translate-x-5" : "translate-x-0"
+        )}
+      />
+    </button>
+  )
+}
 
 const portfolioSchema = z.object({
   name: z.string().min(1, 'Portfolio name is required'),
@@ -27,7 +68,9 @@ const portfolioSchema = z.object({
   benchmarkSymbol: z.string().optional().nullable(),
   holdings: z.array(
     z.object({
-      symbol: z.string().min(1, 'ETF symbol is required'),
+      symbol: z.string().min(1, 'Stock/ETF symbol is required'),
+      name: z.string().optional(),
+      type: z.string().optional(),
       allocation: z.number().min(0.001, 'Allocation must be greater than 0').max(1, 'Allocation cannot exceed 100%'),
     })
   ).min(1, 'At least one holding is required'),
@@ -42,19 +85,6 @@ interface PortfolioFormProps {
   isLoading?: boolean
 }
 
-// Mock ETF search results
-const mockETFs = [
-  { symbol: 'SPY', name: 'SPDR S&P 500 ETF Trust' },
-  { symbol: 'QQQ', name: 'Invesco QQQ Trust' },
-  { symbol: 'IWM', name: 'iShares Russell 2000 ETF' },
-  { symbol: 'VTI', name: 'Vanguard Total Stock Market ETF' },
-  { symbol: 'BND', name: 'Vanguard Total Bond Market ETF' },
-  { symbol: 'VEA', name: 'Vanguard FTSE Developed Markets ETF' },
-  { symbol: 'VWO', name: 'Vanguard FTSE Emerging Markets ETF' },
-  { symbol: 'GLD', name: 'SPDR Gold Shares' },
-  { symbol: 'VNQ', name: 'Vanguard Real Estate ETF' },
-  { symbol: 'TLT', name: 'iShares 20+ Year Treasury Bond ETF' },
-]
 
 // Benchmark categories based on benchmark_service.py
 interface BenchmarkOption {
@@ -374,7 +404,6 @@ import { format } from 'date-fns'
 import { 
   CalendarIcon, 
   Play, 
-  Settings, 
   Sliders as SliderIcon,
   Minus, 
   AlertTriangle,
@@ -1123,15 +1152,480 @@ The component provides:
 7. Visual indicators for selected benchmarks
 */
 
+// =============================================================================
+// PORTFOLIO ALLOCATION EDITOR COMPONENT
+// =============================================================================
+
+interface PortfolioAllocationEditorProps {
+  portfolio: PortfolioWithHoldings | BacktestPortfolio
+  onAllocationChange?: (allocations: Array<{ symbol: string; allocation: number }>) => void
+  className?: string
+  readonly?: boolean
+}
+
+interface EditableAllocation {
+  symbol: string
+  name?: string
+  allocation: number
+  originalAllocation: number
+}
+
+export function PortfolioAllocationEditor({
+  portfolio,
+  onAllocationChange,
+  className,
+  readonly = false
+}: PortfolioAllocationEditorProps) {
+  const [isEditing, setIsEditing] = React.useState(false)
+  const [allocations, setAllocations] = React.useState<EditableAllocation[]>([])
+  const [hasChanges, setHasChanges] = React.useState(false)
+
+  // Initialize allocations from portfolio
+  React.useEffect(() => {
+    const initialAllocations = portfolio.holdings.map(holding => ({
+      symbol: holding.symbol,
+      name: (holding as any).name || undefined,
+      allocation: Number(holding.allocation),
+      originalAllocation: Number(holding.allocation)
+    }))
+    setAllocations(initialAllocations)
+    setHasChanges(false)
+  }, [portfolio])
+
+  // Calculate total allocation
+  const totalAllocation = allocations.reduce((sum, holding) => sum + holding.allocation, 0)
+
+  // Check if allocations have changed
+  React.useEffect(() => {
+    const changed = allocations.some(allocation => 
+      Math.abs(allocation.allocation - allocation.originalAllocation) > 0.0001
+    )
+    setHasChanges(changed)
+  }, [allocations])
+
+  // Get allocation status
+  const getAllocationStatus = () => {
+    const tolerance = 0.01 // 1% tolerance
+    if (totalAllocation < 1 - tolerance) {
+      return { 
+        status: 'under' as const, 
+        message: `${((1 - totalAllocation) * 100).toFixed(1)}% remaining`,
+        isValid: false
+      }
+    } else if (totalAllocation > 1 + tolerance) {
+      return { 
+        status: 'over' as const, 
+        message: `${((totalAllocation - 1) * 100).toFixed(1)}% over allocated`,
+        isValid: false
+      }
+    } else {
+      return { 
+        status: 'perfect' as const, 
+        message: 'Fully allocated',
+        isValid: true
+      }
+    }
+  }
+
+  const allocationStatus = getAllocationStatus()
+
+  // Handle individual allocation change
+  const handleAllocationChange = (symbol: string, value: number) => {
+    const newAllocations = allocations.map(allocation => 
+      allocation.symbol === symbol 
+        ? { ...allocation, allocation: value }
+        : allocation
+    )
+    setAllocations(newAllocations)
+  }
+
+  // Reset to original values
+  const handleReset = () => {
+    const resetAllocations = allocations.map(allocation => ({
+      ...allocation,
+      allocation: allocation.originalAllocation
+    }))
+    setAllocations(resetAllocations)
+    setHasChanges(false)
+  }
+
+  // Apply changes
+  const handleApplyChanges = () => {
+    if (onAllocationChange && allocationStatus.isValid) {
+      const newAllocations = allocations.map(allocation => ({
+        symbol: allocation.symbol,
+        allocation: allocation.allocation
+      }))
+      onAllocationChange(newAllocations)
+      
+      // Update original allocations to current values
+      const updatedAllocations = allocations.map(allocation => ({
+        ...allocation,
+        originalAllocation: allocation.allocation
+      }))
+      setAllocations(updatedAllocations)
+      setHasChanges(false)
+      setIsEditing(false)
+    }
+  }
+
+  // Equal weight redistribution
+  const handleEqualWeights = () => {
+    const equalWeight = 1 / allocations.length
+    const newAllocations = allocations.map(allocation => ({
+      ...allocation,
+      allocation: equalWeight
+    }))
+    setAllocations(newAllocations)
+  }
+
+  return (
+    <Card className={className}>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <CardTitle className="flex items-center gap-2">
+            <Settings className="h-5 w-5" />
+            Portfolio Allocation
+            {hasChanges && <Badge variant="outline" className="ml-2">Modified</Badge>}
+          </CardTitle>
+          <div className="flex items-center gap-3">
+            {!readonly && (
+              <div className="flex items-center gap-2">
+                <label className="text-sm font-medium">Edit Mode</label>
+                <Switch
+                  checked={isEditing}
+                  onCheckedChange={setIsEditing}
+                />
+              </div>
+            )}
+            <Badge
+              variant={
+                allocationStatus.status === 'perfect'
+                  ? 'default'
+                  : allocationStatus.status === 'over'
+                  ? 'destructive'
+                  : 'secondary'
+              }
+            >
+              {allocationStatus.status === 'perfect' && (
+                <CheckCircle className="h-3 w-3 mr-1" />
+              )}
+              {allocationStatus.status !== 'perfect' && (
+                <AlertCircle className="h-3 w-3 mr-1" />
+              )}
+              {(totalAllocation * 100).toFixed(1)}%
+            </Badge>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div className="space-y-4">
+          {/* Allocation Status Alert */}
+          {!allocationStatus.isValid && isEditing && (
+            <Alert variant={allocationStatus.status === 'over' ? 'destructive' : 'default'}>
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>
+                <span className="font-medium">
+                  {allocationStatus.status === 'over' ? 'Over Allocated' : 'Under Allocated'}:
+                </span>
+                {' '}{allocationStatus.message}. Please adjust allocations to total 100%.
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {/* Holdings Table */}
+          <div className="overflow-hidden">
+            {/* Desktop Table Header */}
+            <div className="hidden md:grid grid-cols-12 gap-3 py-2 px-3 bg-muted/50 rounded-t-lg text-sm font-medium">
+              <div className="col-span-4">Symbol</div>
+              <div className="col-span-4">Name</div>
+              <div className="col-span-2">Original</div>
+              <div className="col-span-2">{isEditing ? 'New Weight' : 'Allocation'}</div>
+            </div>
+
+            <div className="space-y-1">
+              {allocations.map((holding, index) => (
+                <div 
+                  key={holding.symbol} 
+                  className={cn(
+                    "p-3 border-b last:border-b-0 hover:bg-muted/30 transition-colors",
+                    "md:grid md:grid-cols-12 md:gap-3 md:py-3",
+                    isEditing && "bg-background border rounded-lg mb-2"
+                  )}
+                >
+                  {/* Mobile Layout */}
+                  <div className="md:hidden space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline" className="font-mono text-xs">
+                          {holding.symbol}
+                        </Badge>
+                        {Math.abs(holding.allocation - holding.originalAllocation) > 0.0001 && isEditing && (
+                          <Edit3 className="h-3 w-3 text-primary" />
+                        )}
+                      </div>
+                      <div className="text-sm font-medium">
+                        {(holding.allocation * 100).toFixed(1)}%
+                      </div>
+                    </div>
+                    
+                    <div className="text-sm text-muted-foreground truncate">
+                      {holding.name || holding.symbol}
+                    </div>
+                    
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-muted-foreground">
+                        Original: {(holding.originalAllocation * 100).toFixed(1)}%
+                      </span>
+                      
+                      {isEditing && (
+                        <div className="flex items-center gap-1">
+                          <Input
+                            type="number"
+                            step="0.1"
+                            min="0"
+                            max="100"
+                            value={(holding.allocation * 100).toFixed(1)}
+                            onChange={(e) => {
+                              const percentage = parseFloat(e.target.value) || 0
+                              const decimal = percentage / 100
+                              handleAllocationChange(holding.symbol, decimal)
+                            }}
+                            className="h-8 text-xs w-20"
+                          />
+                          <span className="text-xs text-muted-foreground">%</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Desktop Layout */}
+                  <div className="hidden md:contents">
+                    <div className="col-span-4">
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline" className="font-mono text-xs">
+                          {holding.symbol}
+                        </Badge>
+                        {Math.abs(holding.allocation - holding.originalAllocation) > 0.0001 && isEditing && (
+                          <Edit3 className="h-3 w-3 text-primary" />
+                        )}
+                      </div>
+                    </div>
+                    
+                    <div className="col-span-4 text-sm text-muted-foreground truncate">
+                      {holding.name || holding.symbol}
+                    </div>
+                    
+                    <div className="col-span-2 text-sm font-medium">
+                      {(holding.originalAllocation * 100).toFixed(1)}%
+                    </div>
+                    
+                    <div className="col-span-2">
+                      {isEditing ? (
+                        <div className="flex items-center gap-1">
+                          <Input
+                            type="number"
+                            step="0.1"
+                            min="0"
+                            max="100"
+                            value={(holding.allocation * 100).toFixed(1)}
+                            onChange={(e) => {
+                              const percentage = parseFloat(e.target.value) || 0
+                              const decimal = percentage / 100
+                              handleAllocationChange(holding.symbol, decimal)
+                            }}
+                            className="h-8 text-xs"
+                          />
+                          <span className="text-xs text-muted-foreground">%</span>
+                        </div>
+                      ) : (
+                        <span className="text-sm font-medium">
+                          {(holding.allocation * 100).toFixed(1)}%
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Total Row */}
+            <div className="p-3 bg-muted/50 rounded-b-lg border-t-2 font-medium">
+              {/* Mobile Total */}
+              <div className="md:hidden flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span>Total</span>
+                  {allocationStatus.status !== 'perfect' && isEditing && (
+                    <span className="text-xs text-muted-foreground">
+                      ({allocationStatus.message})
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-4">
+                  <span>100.0%</span>
+                  <span className={cn(
+                    !allocationStatus.isValid && isEditing ? "text-destructive font-bold" : "text-foreground"
+                  )}>
+                    {(totalAllocation * 100).toFixed(1)}%
+                  </span>
+                </div>
+              </div>
+
+              {/* Desktop Total */}
+              <div className="hidden md:grid grid-cols-12 gap-3">
+                <div className="col-span-8 flex items-center gap-2">
+                  <span>Total</span>
+                  {allocationStatus.status !== 'perfect' && isEditing && (
+                    <span className="text-xs text-muted-foreground">
+                      ({allocationStatus.message})
+                    </span>
+                  )}
+                </div>
+                <div className="col-span-2">100.0%</div>
+                <div className={cn(
+                  "col-span-2",
+                  !allocationStatus.isValid && isEditing ? "text-destructive font-bold" : "text-foreground"
+                )}>
+                  {(totalAllocation * 100).toFixed(1)}%
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Edit Mode Actions */}
+          {isEditing && !readonly && (
+            <div className="flex flex-wrap gap-3 pt-4 border-t">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleEqualWeights}
+                className="flex items-center gap-2"
+              >
+                <TrendingUp className="h-4 w-4" />
+                Equal Weights
+              </Button>
+              
+              {hasChanges && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleReset}
+                  className="flex items-center gap-2"
+                >
+                  <RotateCcw className="h-4 w-4" />
+                  Reset
+                </Button>
+              )}
+              
+              <div className="flex-1" />
+              
+              {hasChanges && (
+                <>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setIsEditing(false)
+                      handleReset()
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                  
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={handleApplyChanges}
+                    disabled={!allocationStatus.isValid}
+                    className="bg-primary hover:bg-primary/90"
+                  >
+                    Apply Changes
+                  </Button>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* Read-only mode info */}
+          {readonly && (
+            <div className="text-xs text-muted-foreground border-t pt-3">
+              <Info className="inline h-3 w-3 mr-1" />
+              This portfolio is in read-only mode. Create a custom backtest to modify allocations.
+            </div>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+// =============================================================================
+// USAGE EXAMPLE FOR PORTFOLIO ALLOCATION EDITOR
+// =============================================================================
+
+/*
+Example usage in a backtest form:
+
+```tsx
+import { PortfolioAllocationEditor } from '@/components/portfolio/portfolio-form'
+
+// In your backtest form component:
+const [selectedPortfolio, setSelectedPortfolio] = useState<PortfolioWithHoldings | null>(null)
+const [customAllocations, setCustomAllocations] = useState<Array<{ symbol: string; allocation: number }> | null>(null)
+
+// When portfolio is selected in backtest form
+const handlePortfolioSelect = (portfolio: PortfolioWithHoldings) => {
+  setSelectedPortfolio(portfolio)
+  setCustomAllocations(null) // Reset custom allocations
+}
+
+// When user modifies allocations
+const handleAllocationChange = (allocations: Array<{ symbol: string; allocation: number }>) => {
+  setCustomAllocations(allocations)
+  console.log('Custom allocations updated:', allocations)
+}
+
+// In your JSX:
+{selectedPortfolio && (
+  <PortfolioAllocationEditor
+    portfolio={selectedPortfolio}
+    onAllocationChange={handleAllocationChange}
+    readonly={false}
+    className="mt-6"
+  />
+)}
+
+// When running backtest, use customAllocations if available, otherwise use original portfolio allocations
+const backtestData = {
+  ...otherBacktestData,
+  allocations: customAllocations || selectedPortfolio.holdings.map(h => ({
+    symbol: h.symbol,
+    allocation: h.allocation
+  }))
+}
+```
+
+Features:
+✅ Toggle edit mode on/off
+✅ Real-time allocation validation (must sum to 100%)
+✅ Visual indicators for changes and validation errors
+✅ Equal weights redistribution button
+✅ Reset to original values
+✅ Mobile-responsive design
+✅ TypeScript interfaces
+✅ Proper error handling and user feedback
+✅ Integration with existing UI components
+*/
+
 export function PortfolioForm({
   initialData,
   onSubmit,
   onCancel,
   isLoading = false,
 }: PortfolioFormProps) {
-  const [searchTerm, setSearchTerm] = React.useState('')
-  const [showETFSearch, setShowETFSearch] = React.useState(false)
-  const [selectedFieldIndex, setSelectedFieldIndex] = React.useState<number | null>(null)
 
   const form = useForm<PortfolioFormData>({
     resolver: zodResolver(portfolioSchema),
@@ -1140,7 +1634,7 @@ export function PortfolioForm({
       description: initialData?.description || '',
       isPublic: initialData?.isPublic || false,
       benchmarkSymbol: initialData?.benchmarkSymbol || null,
-      holdings: initialData?.holdings || [{ symbol: '', allocation: 0 }],
+      holdings: initialData?.holdings || [{ symbol: '', name: '', type: '', allocation: 0 }],
     },
   })
 
@@ -1152,36 +1646,46 @@ export function PortfolioForm({
   const watchedHoldings = form.watch('holdings')
   const totalAllocation = watchedHoldings.reduce((sum, holding) => sum + (holding.allocation || 0), 0)
 
-  const filteredETFs = React.useMemo(() => {
-    if (!searchTerm) return mockETFs.slice(0, 5)
-    return mockETFs.filter(
-      etf =>
-        etf.symbol.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        etf.name.toLowerCase().includes(searchTerm.toLowerCase())
-    ).slice(0, 10)
-  }, [searchTerm])
-
-  const handleETFSelect = (etf: typeof mockETFs[0]) => {
-    if (selectedFieldIndex !== null) {
-      form.setValue(`holdings.${selectedFieldIndex}.symbol`, etf.symbol)
-      setShowETFSearch(false)
-      setSelectedFieldIndex(null)
-      setSearchTerm('')
-    }
+  // Calculate equal weights for all holdings
+  const redistributeEqualWeights = () => {
+    const currentHoldings = form.getValues('holdings')
+    const filledHoldings = currentHoldings.filter(h => h.symbol && h.symbol.trim() !== '')
+    
+    if (filledHoldings.length === 0) return
+    
+    // Calculate equal weight as decimal (e.g., 0.5 for 50%)
+    const equalWeightDecimal = 1 / filledHoldings.length
+    
+    currentHoldings.forEach((holding, index) => {
+      if (holding.symbol && holding.symbol.trim() !== '') {
+        // Set the decimal value directly - the form handles percentage conversion
+        form.setValue(`holdings.${index}.allocation`, equalWeightDecimal)
+      } else {
+        // Clear allocation for empty holdings
+        form.setValue(`holdings.${index}.allocation`, 0)
+      }
+    })
   }
 
-  const openETFSearch = (index: number) => {
-    setSelectedFieldIndex(index)
-    setShowETFSearch(true)
+  // Handle search result selection
+  const handleAssetSelect = (result: { symbol: string; name: string; type?: string }, index: number) => {
+    form.setValue(`holdings.${index}.symbol`, result.symbol)
+    form.setValue(`holdings.${index}.name`, result.name)
+    form.setValue(`holdings.${index}.type`, result.type || 'stock')
+    
+    // Auto-calculate equal weights after selection
+    setTimeout(() => redistributeEqualWeights(), 100)
   }
 
   const addHolding = () => {
-    append({ symbol: '', allocation: 0 })
+    append({ symbol: '', name: '', type: '', allocation: 0 })
   }
 
   const removeHolding = (index: number) => {
     if (fields.length > 1) {
       remove(index)
+      // Recalculate equal weights after removal
+      setTimeout(() => redistributeEqualWeights(), 100)
     }
   }
 
@@ -1205,7 +1709,15 @@ export function PortfolioForm({
         </CardTitle>
       </CardHeader>
       <CardContent>
-        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+        <form 
+          onSubmit={form.handleSubmit((data) => {
+            console.log('Portfolio form submitted with data:', data)
+            onSubmit(data)
+          }, (errors) => {
+            console.log('Portfolio form validation errors:', errors)
+          })} 
+          className="space-y-6"
+        >
           {/* Portfolio Details */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
@@ -1292,28 +1804,41 @@ export function PortfolioForm({
               {fields.map((field, index) => (
                 <div key={field.id} className="flex items-end space-x-3">
                   <div className="flex-1">
-                    <label className="text-sm font-medium">ETF Symbol</label>
-                    <div className="relative">
-                      <Input
-                        {...form.register(`holdings.${index}.symbol`)}
-                        placeholder="e.g., SPY"
-                        className="mt-1 pr-10"
-                        onFocus={() => openETFSearch(index)}
+                    <label className="text-sm font-medium">Stock/ETF Symbol</label>
+                    <div className="mt-1">
+                      <SearchDropdown
+                        placeholder="Search for stocks, ETFs (e.g., AAPL, SPY, QQQ...)"
+                        onSelect={(result) => handleAssetSelect(result, index)}
+                        className="w-full"
                       />
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="absolute right-1 top-1 h-8 w-8"
-                        onClick={() => openETFSearch(index)}
-                      >
-                        <Search className="h-4 w-4" />
-                      </Button>
                     </div>
                     {form.formState.errors.holdings?.[index]?.symbol && (
                       <p className="text-sm text-destructive mt-1">
                         {form.formState.errors.holdings[index]?.symbol?.message}
                       </p>
+                    )}
+                    
+                    {/* Show selected asset info */}
+                    {form.watch(`holdings.${index}.symbol`) && (
+                      <div className="mt-2 p-2 bg-muted rounded-sm">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <div className="font-medium text-sm">
+                              {form.watch(`holdings.${index}.symbol`)}
+                            </div>
+                            {form.watch(`holdings.${index}.name`) && (
+                              <div className="text-xs text-muted-foreground">
+                                {form.watch(`holdings.${index}.name`)}
+                              </div>
+                            )}
+                          </div>
+                          {form.watch(`holdings.${index}.type`) && (
+                            <Badge variant="secondary" className="text-xs">
+                              {form.watch(`holdings.${index}.type`)?.toUpperCase()}
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
                     )}
                   </div>
                   <div className="flex-1">
@@ -1323,10 +1848,12 @@ export function PortfolioForm({
                       step="0.1"
                       min="0"
                       max="100"
-                      {...form.register(`holdings.${index}.allocation`, {
-                        valueAsNumber: true,
-                        setValueAs: (value) => value / 100, // Convert percentage to decimal
-                      })}
+                      value={((form.watch(`holdings.${index}.allocation`) || 0) * 100).toFixed(1)}
+                      onChange={(e) => {
+                        const percentageValue = parseFloat(e.target.value) || 0
+                        const decimalValue = percentageValue / 100
+                        form.setValue(`holdings.${index}.allocation`, decimalValue)
+                      }}
                       placeholder="25.0"
                       className="mt-1"
                     />
@@ -1350,15 +1877,33 @@ export function PortfolioForm({
               ))}
             </div>
 
-            <Button
-              type="button"
-              variant="outline"
-              onClick={addHolding}
-              className="mt-3"
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              Add Holding
-            </Button>
+            <div className="flex gap-3 mt-3">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={addHolding}
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Add Holding
+              </Button>
+              
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={redistributeEqualWeights}
+                disabled={fields.filter(f => form.watch(`holdings.${fields.indexOf(f)}.symbol`)).length === 0}
+                className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border-indigo-200"
+                title="Automatically distribute equal weights across all selected assets"
+              >
+                <TrendingUp className="h-4 w-4 mr-2" />
+                Equal Weights
+              </Button>
+            </div>
+            
+            <p className="text-xs text-muted-foreground mt-2">
+              <Info className="inline h-3 w-3 mr-1" />
+              Equal weights are automatically calculated when you select assets. Use the "Equal Weights" button to redistribute manually.
+            </p>
           </div>
 
           {/* Form Actions */}
@@ -1370,53 +1915,32 @@ export function PortfolioForm({
             )}
             <Button
               type="submit"
-              disabled={isLoading || allocationStatus.status === 'over'}
+              disabled={
+                isLoading || 
+                allocationStatus.status === 'over' || 
+                allocationStatus.status === 'under' ||
+                !form.formState.isValid
+              }
             >
               {isLoading ? 'Saving...' : initialData ? 'Update Portfolio' : 'Create Portfolio'}
             </Button>
+            
+            {/* Show form errors */}
+            {Object.keys(form.formState.errors).length > 0 && (
+              <div className="mt-2 text-sm text-destructive">
+                <p>Please fix the following errors:</p>
+                <ul className="list-disc list-inside mt-1">
+                  {form.formState.errors.name && <li>Portfolio name is required</li>}
+                  {form.formState.errors.holdings && <li>At least one holding is required</li>}
+                  {Object.entries(form.formState.errors.holdings || {}).map(([index, error]: [string, any]) => (
+                    error?.symbol && <li key={index}>Holding {parseInt(index) + 1}: Symbol is required</li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
         </form>
 
-        {/* ETF Search Modal */}
-        {showETFSearch && (
-          <>
-            <div
-              className="fixed inset-0 bg-black/50 z-40"
-              onClick={() => setShowETFSearch(false)}
-            />
-            <div className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-50">
-              <Card className="w-96 max-h-96 overflow-hidden">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-lg">Search ETFs</CardTitle>
-                  <Input
-                    placeholder="Search by symbol or name..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    autoFocus
-                  />
-                </CardHeader>
-                <CardContent className="p-0 max-h-64 overflow-y-auto">
-                  {filteredETFs.map((etf) => (
-                    <button
-                      key={etf.symbol}
-                      type="button"
-                      className="w-full text-left px-4 py-3 hover:bg-muted border-b last:border-b-0"
-                      onClick={() => handleETFSelect(etf)}
-                    >
-                      <div className="font-medium">{etf.symbol}</div>
-                      <div className="text-sm text-muted-foreground">{etf.name}</div>
-                    </button>
-                  ))}
-                  {filteredETFs.length === 0 && (
-                    <div className="px-4 py-8 text-center text-muted-foreground">
-                      No ETFs found
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
-          </>
-        )}
       </CardContent>
     </Card>
   )

@@ -40,9 +40,25 @@ export const backtestSchema = z.object({
   benchmarkSymbol: z.string().max(20).optional().nullable(),
   rebalancingFrequency: z.enum(['daily', 'weekly', 'monthly', 'quarterly']).optional(),
   parameters: z.record(z.any()).optional(),
+  customHoldings: z.array(
+    z.object({
+      symbol: z.string().min(1, 'Symbol is required').max(20),
+      allocation: z.number().min(0.0001, 'Allocation must be at least 0.01%').max(1, 'Allocation cannot exceed 100%'),
+      name: z.string().optional(),
+    })
+  ).min(1, 'At least one holding is required').optional(),
 }).refine((data) => new Date(data.startDate) < new Date(data.endDate), {
   message: 'End date must be after start date',
   path: ['endDate'],
+}).refine((data) => {
+  if (data.customHoldings && data.customHoldings.length > 0) {
+    const totalAllocation = data.customHoldings.reduce((sum, holding) => sum + holding.allocation, 0)
+    return Math.abs(totalAllocation - 1) < 0.0001 // Allow for floating point precision
+  }
+  return true
+}, {
+  message: 'Custom holdings allocations must sum to 100%',
+  path: ['customHoldings'],
 })
 
 export const strategyParametersSchema = z.object({

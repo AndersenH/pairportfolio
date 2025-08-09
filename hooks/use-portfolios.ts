@@ -8,11 +8,28 @@ export function usePortfolios(page = 1, limit = 10) {
   return useQuery({
     queryKey: ['portfolios', page, limit],
     queryFn: async (): Promise<PaginatedResponse<PortfolioWithHoldings>> => {
-      const response = await fetch(`${API_BASE}?page=${page}&limit=${limit}`)
+      const response = await fetch(`${API_BASE}?page=${page}&limit=${limit}`, {
+        credentials: 'include', // Include cookies for authentication
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      })
+      
+      console.log('Fetching portfolios:', { 
+        status: response.status, 
+        ok: response.ok,
+        url: response.url 
+      })
+      
       if (!response.ok) {
-        throw new Error('Failed to fetch portfolios')
+        const errorText = await response.text().catch(() => 'Unknown error')
+        console.error('Portfolio fetch failed:', errorText)
+        throw new Error(`Failed to fetch portfolios: ${response.status} ${response.statusText}`)
       }
-      return response.json()
+      
+      const data = await response.json()
+      console.log('Portfolio fetch successful:', data)
+      return data
     },
   })
 }
@@ -40,19 +57,32 @@ export function useCreatePortfolio() {
 
   return useMutation({
     mutationFn: async (data: PortfolioInput): Promise<PortfolioWithHoldings> => {
+      console.log('Creating portfolio via mutation:', data)
+      
       const response = await fetch(API_BASE, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
+        credentials: 'include', // Include cookies for authentication
         body: JSON.stringify(data),
       })
 
+      console.log('Create portfolio response:', {
+        status: response.status,
+        ok: response.ok,
+        statusText: response.statusText
+      })
+
       if (!response.ok) {
-        throw new Error('Failed to create portfolio')
+        const errorText = await response.text().catch(() => 'Unknown error')
+        console.error('Create portfolio failed:', errorText)
+        throw new Error(`Failed to create portfolio: ${response.status} ${response.statusText}`)
       }
 
       const result: ApiResponse<PortfolioWithHoldings> = await response.json()
+      console.log('Create portfolio result:', result)
+      
       if (!result.success || !result.data) {
         throw new Error(result.error || 'Failed to create portfolio')
       }

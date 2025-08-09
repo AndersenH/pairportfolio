@@ -1,0 +1,215 @@
+name: E2E Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+    types: [ opened, synchronize, reopened ]
+
+env:
+  NODE_VERSION: '18'
+  PLAYWRIGHT_BROWSERS_PATH: ~/.cache/ms-playwright
+
+jobs:
+  e2e-tests:
+    name: End-to-End Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+        shard: [1/4, 2/4, 3/4, 4/4]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.PLAYWRIGHT_BROWSERS_PATH }}
+          key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install ${{ matrix.browser }} --with-deps
+
+      - name: Verify Playwright installation
+        run: npx playwright --version
+
+      - name: Setup test environment
+        run: |
+          cp .env.test .env.local
+          echo "CI=true" >> .env.local
+          echo "HEADLESS=true" >> .env.local
+          echo "TEST_SHARD=${{ matrix.shard }}" >> .env.local
+
+      - name: Build application
+        run: npm run build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+
+      - name: Start application
+        run: |
+          npm run start &
+          npx wait-on http://localhost:3000 --timeout 120000
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+
+      - name: Run E2E tests
+        run: npx playwright test --project=${{ matrix.browser }} --shard=${{ matrix.shard }}
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+          CI: true
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-results-${{ matrix.browser }}-${{ strategy.job-index }}
+          path: |
+            test-results/
+            playwright-report/
+          retention-days: 7
+
+  smoke-tests:
+    name: Smoke Tests (Quick)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers (Chromium only)
+        run: npx playwright install chromium --with-deps
+
+      - name: Setup test environment
+        run: |
+          cp .env.test .env.local
+          echo "CI=true" >> .env.local
+
+      - name: Build application
+        run: npm run build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+
+      - name: Start application
+        run: |
+          npm run start &
+          npx wait-on http://localhost:3000 --timeout 60000
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+
+      - name: Run smoke tests
+        run: npx playwright test --grep="@smoke" --project=chromium
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
+
+      - name: Upload smoke test results
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: smoke-test-results
+          path: |
+            test-results/
+            playwright-report/
+          retention-days: 7
+
+  test-report:
+    name: Generate Test Report
+    runs-on: ubuntu-latest
+    needs: [e2e-tests, smoke-tests]
+    if: always()
+
+    steps:
+      - name: Download all test artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: test-artifacts
+
+      - name: Combine test results
+        run: |
+          mkdir -p combined-results
+          find test-artifacts -name "*.json" -type f -exec cp {} combined-results/ \;
+          find test-artifacts -name "*.xml" -type f -exec cp {} combined-results/ \;
+
+      - name: Generate HTML report
+        run: |
+          if [ -d "test-artifacts" ]; then
+            echo "Test artifacts found, generating report..."
+            ls -la test-artifacts/
+          else
+            echo "No test artifacts found"
+          fi
+
+      - name: Comment PR with test results
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            
+            let testResults = 'E2E Test Results:\n';
+            
+            // Look for test result files
+            if (fs.existsSync('combined-results')) {
+              const files = fs.readdirSync('combined-results');
+              testResults += `Found ${files.length} test result files.\n`;
+            } else {
+              testResults += 'No test results found.\n';
+            }
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: testResults
+            });
+
+      - name: Upload combined results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: combined-test-results
+          path: |
+            combined-results/
+            test-artifacts/
+          retention-days: 30

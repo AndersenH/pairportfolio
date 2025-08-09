@@ -2,7 +2,6 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { AppLayout } from '@/components/layout/app-layout'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -211,11 +210,21 @@ function RecentActivity() {
 }
 
 export default function DashboardPage() {
-  const { data: portfoliosData, isLoading } = usePortfolios(1, 10)
+  const { data: portfoliosData, isLoading, error } = usePortfolios(1, 10)
   const portfolios = portfoliosData?.data || []
+  
+  // Debug logging
+  React.useEffect(() => {
+    console.log('Dashboard - Portfolio data:', {
+      isLoading,
+      error,
+      portfoliosData,
+      portfolios: portfolios.length
+    })
+  }, [isLoading, error, portfoliosData, portfolios.length])
 
   return (
-    <AppLayout>
+    <div className="container mx-auto px-4 py-6 md:px-6 lg:px-8">
       <div className="space-y-6">
         {/* Header */}
         <div className="flex flex-col space-y-4 sm:flex-row sm:items-center sm:justify-between sm:space-y-0">
@@ -345,6 +354,6 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
-    </AppLayout>
+    </div>
   )
 }
