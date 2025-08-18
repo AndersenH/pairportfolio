@@ -1,5 +1,10 @@
 import { FullConfig } from '@playwright/test'
 import { createClient } from '@supabase/supabase-js'
+import { config } from 'dotenv'
+import { resolve } from 'path'
+
+// Load test environment variables
+config({ path: resolve(process.cwd(), '.env.test') })
 
 /**
  * Global Setup for ETF Portfolio E2E Tests
@@ -11,7 +16,7 @@ import { createClient } from '@supabase/supabase-js'
  * - Validates API endpoints are accessible
  */
 async function globalSetup(config: FullConfig) {
-  console.log('=€ Starting ETF Portfolio E2E Test Setup...')
+  console.log('=ï¿½ Starting ETF Portfolio E2E Test Setup...')
 
   // Validate required environment variables
   const requiredEnvVars = [
@@ -35,7 +40,7 @@ async function globalSetup(config: FullConfig) {
     // Validate Supabase connection
     const { data, error } = await supabase.from('users').select('count').limit(1).maybeSingle()
     if (error && error.code !== 'PGRST116') { // PGRST116 = no rows returned, which is OK
-      console.warn('   Supabase connection test failed:', error.message)
+      console.warn('ï¿½  Supabase connection test failed:', error.message)
     } else {
       console.log(' Supabase connection validated')
     }
@@ -47,10 +52,10 @@ async function globalSetup(config: FullConfig) {
       if (response.ok) {
         console.log(' Next.js application is accessible')
       } else {
-        console.warn('   Next.js application health check returned:', response.status)
+        console.warn('ï¿½  Next.js application health check returned:', response.status)
       }
     } catch (error) {
-      console.warn('   Next.js application is not accessible. Tests may fail.')
+      console.warn('ï¿½  Next.js application is not accessible. Tests may fail.')
     }
 
     // Cleanup any existing test data
@@ -60,7 +65,7 @@ async function globalSetup(config: FullConfig) {
         .from('portfolios')
         .delete()
         .ilike('name', '%test%')
-      console.log('>ù Cleaned up existing test data')
+      console.log('>ï¿½ Cleaned up existing test data')
     } catch (error) {
       console.log('9  Test data cleanup skipped (table may not exist yet)')
     }

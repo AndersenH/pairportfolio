@@ -7,8 +7,8 @@ test.describe('Setup Verification', () => {
     // Check if the page loads
     await expect(page).toHaveTitle(/ETF Portfolio/)
     
-    // Check if main elements are present
-    await expect(page.locator('text=ETF Portfolio')).toBeVisible()
+    // Check if main elements are present (be more specific)
+    await expect(page.locator('header').locator('text=ETF Portfolio')).toBeVisible()
     
     console.log('✅ Basic app loading works!')
   })
@@ -30,10 +30,10 @@ test.describe('Setup Verification', () => {
   test('backtest page loads without errors', async ({ page }) => {
     await page.goto('http://localhost:3000/backtests/new')
     
-    // Should show the backtest form
-    await expect(page.locator('text=Run Backtest')).toBeVisible()
-    await expect(page.locator('text=Portfolio')).toBeVisible()
-    await expect(page.locator('text=Backtest Settings')).toBeVisible()
+    // Should show the backtest form - be more specific with selectors
+    await expect(page.locator('h1', { hasText: 'Run Backtest' })).toBeVisible()
+    await expect(page.locator('label', { hasText: 'Portfolio' })).toBeVisible()
+    await expect(page.locator('h3', { hasText: 'Backtest Settings' })).toBeVisible()
     
     console.log('✅ Backtest page works!')
   })

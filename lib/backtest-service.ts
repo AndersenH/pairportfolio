@@ -159,7 +159,7 @@ export class BacktestService {
           },
         },
         strategy: true,
-        performanceMetrics: true,
+        metrics: true,
         holdings: true,
       },
     })
@@ -191,7 +191,7 @@ export class BacktestService {
               type: true,
             },
           },
-          performanceMetrics: true,
+          metrics: true,
           holdings: true,
         },
         orderBy: { [sortBy]: sortOrder },
@@ -228,9 +228,28 @@ export class BacktestService {
   }
 
   private async executeBacktest(backtestId: string): Promise<void> {
+    // Add overall timeout for the entire backtest execution
+    const backtestTimeout = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error(`Backtest execution timeout after 10 minutes`)), 600000) // 10 minutes
+    })
+    
+    try {
+      await Promise.race([
+        this.executeBacktestInternal(backtestId),
+        backtestTimeout
+      ])
+    } catch (error) {
+      console.error(`Backtest execution failed for ${backtestId}:`, error)
+      await this.updateBacktestStatus(backtestId, 'failed', error instanceof Error ? error.message : 'Unknown error')
+      throw error
+    }
+  }
+
+  private async executeBacktestInternal(backtestId: string): Promise<void> {
     try {
       // Update status to running
       await this.updateBacktestStatus(backtestId, 'running')
+      console.log(`Starting backtest execution for ${backtestId}`)
 
       // Get backtest details
       const backtest = await prisma.backtest.findUnique({
@@ -254,38 +273,60 @@ export class BacktestService {
       const holdingsToAnalyze = backtest.holdings.length > 0 ? backtest.holdings : backtest.portfolio.holdings
       const symbols = holdingsToAnalyze.map(h => h.symbol)
       const period = this.calculatePeriod(backtest.startDate, backtest.endDate)
+      console.log(`Backtest ${backtestId}: Calculated period "${period}" for date range ${backtest.startDate} to ${backtest.endDate}`)
       
-      const marketData = await this.marketDataService.getBulkHistoricalData(
+      // Use specific date range instead of period to avoid caching issues
+      const fromDate = backtest.startDate.toISOString().split('T')[0]
+      const toDate = backtest.endDate.toISOString().split('T')[0]
+      console.log(`Fetching market data for ${symbols.join(', ')} from ${fromDate} to ${toDate}`)
+      
+      const marketData = await this.marketDataService.getBulkHistoricalDataByDateRange(
         symbols,
-        period,
+        fromDate,
+        toDate,
         '1d'
       )
+      
+      console.log(`Market data fetch completed for ${backtestId}. Symbols with data: ${Object.keys(marketData).filter(symbol => marketData[symbol].length > 0).join(', ')}`)
+
+      // Validate that we have market data for all symbols
+      const symbolsWithoutData = symbols.filter(symbol => !marketData[symbol] || marketData[symbol].length === 0)
+      if (symbolsWithoutData.length > 0) {
+        throw new Error(`No market data available for symbols: ${symbolsWithoutData.join(', ')}. Cannot proceed with backtest.`)
+      }
 
       // Execute backtest based on strategy
       let result: BacktestResult
       
       switch (backtest.strategy.type) {
         case 'buy_hold':
+          console.log(`Executing buy-hold strategy for ${backtestId}`)
           result = await this.executeBuyHoldBacktest(backtest, marketData, holdingsToAnalyze)
           break
         case 'momentum':
+          console.log(`Executing momentum strategy for ${backtestId}`)
           result = await this.executeMomentumBacktest(backtest, marketData, holdingsToAnalyze)
           break
         default:
           throw new Error(`Unsupported strategy type: ${backtest.strategy.type}`)
       }
 
+      console.log(`Strategy execution completed for ${backtestId}. Portfolio has ${result.portfolioValue.length} data points`)
+
       // Calculate performance metrics
+      console.log(`Calculating performance metrics for ${backtestId}`)
       const metrics = this.calculatePerformanceMetrics(result, backtest.initialCapital)
 
       // Save results
+      console.log(`Saving results for ${backtestId}`)
       await this.saveBacktestResults(backtestId, result, metrics)
 
       // Update status to completed
+      console.log(`Backtest ${backtestId} completed successfully`)
       await this.updateBacktestStatus(backtestId, 'completed')
 
     } catch (error) {
-      console.error(`Backtest execution failed for ${backtestId}:`, error)
+      console.error(`Backtest internal execution failed for ${backtestId}:`, error)
       await this.updateBacktestStatus(backtestId, 'failed', error instanceof Error ? error.message : 'Unknown error')
       throw error
     }
@@ -462,7 +503,8 @@ export class BacktestService {
     
     if (diffDays <= 365) return '1y'
     if (diffDays <= 730) return '2y'
-    if (diffDays <= 1825) return '5y'
+    if (diffDays <= 1830) return '5y' // Give 5 extra days buffer for 5 years
+    if (diffDays <= 3660) return '10y'
     return 'max'
   }
 

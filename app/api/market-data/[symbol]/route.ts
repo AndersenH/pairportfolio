@@ -2,12 +2,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import { MarketDataService } from '@/lib/market-data-service'
 import { marketDataQuerySchema } from '@/lib/validations'
 import { 
-  withApiHandler, 
   createApiResponse, 
   createApiError, 
   validateQueryParams,
   validateETFSymbol
 } from '@/lib/utils'
+import { withApiHandler } from '@/lib/server-utils'
 
 interface RouteParams {
   params: {

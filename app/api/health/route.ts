@@ -293,6 +293,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       redis: redisCheck,
       apis: apisCheck
     };
+
+    console.log('Health checks:', JSON.stringify(checks, null, 2));
     
     // Determine overall health status
     const failedChecks = Object.values(checks).filter(check => check.status === 'fail').length;

@@ -31,14 +31,14 @@ export const holdingSchema = z.object({
 
 // Backtest schemas
 export const backtestSchema = z.object({
-  portfolioId: z.string().uuid('Invalid portfolio ID'),
-  strategyId: z.string().uuid('Invalid strategy ID').optional(),
+  portfolioId: z.string().min(1, 'Portfolio ID is required'),
+  strategyId: z.string().min(1, 'Strategy ID is required').optional(),
   name: z.string().min(1, 'Backtest name is required').max(255).optional(),
   startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Start date must be in YYYY-MM-DD format'),
   endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'End date must be in YYYY-MM-DD format'),
   initialCapital: z.number().min(1, 'Initial capital must be at least $1').max(1000000000).default(10000),
   benchmarkSymbol: z.string().max(20).optional().nullable(),
-  rebalancingFrequency: z.enum(['daily', 'weekly', 'monthly', 'quarterly']).optional(),
+  rebalancingFrequency: z.enum(['daily', 'weekly', 'monthly', 'quarterly', 'yearly', 'none']).optional(),
   parameters: z.record(z.any()).optional(),
   customHoldings: z.array(
     z.object({
@@ -64,7 +64,7 @@ export const backtestSchema = z.object({
 export const strategyParametersSchema = z.object({
   lookbackPeriod: z.number().min(1).max(252).optional(),
   topN: z.number().min(1).max(50).optional(),
-  rebalanceFrequency: z.enum(['daily', 'weekly', 'monthly', 'quarterly']).optional(),
+  rebalanceFrequency: z.enum(['daily', 'weekly', 'monthly', 'quarterly', 'yearly', 'none']).optional(),
   minimumVolume: z.number().min(0).optional(),
   excludeSymbols: z.array(z.string()).optional(),
 })
@@ -128,6 +128,14 @@ export const apiResponseSchema = z.object({
   }).optional(),
 })
 
+//  Save portfolio from backtest schema
+export const savePortfolioFromBacktestSchema = z.object({
+  name: z.string().min(1, 'Portfolio name is required').max(255),
+  description: z.string().max(1000).optional(),
+  isPublic: z.boolean().default(false),
+  updateEndDateToToday: z.boolean().default(true),
+})
+
 // Type exports
 export type PortfolioInput = z.infer<typeof portfolioSchema>
 export type PortfolioUpdateInput = z.infer<typeof portfolioUpdateSchema>
@@ -140,3 +148,4 @@ export type UserRegistration = z.infer<typeof userRegistrationSchema>
 export type UserLogin = z.infer<typeof userLoginSchema>
 export type PaginationQuery = z.infer<typeof paginationSchema>
 export type ApiResponse = z.infer<typeof apiResponseSchema>
+export type SavePortfolioFromBacktestInput = z.infer<typeof savePortfolioFromBacktestSchema>

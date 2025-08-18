@@ -12,6 +12,7 @@ import Link from 'next/link'
 export default function NewPortfolioPage() {
   const router = useRouter()
   const createPortfolioMutation = useCreatePortfolio()
+  const [isSavingDraft, setIsSavingDraft] = React.useState(false)
 
   const handleSubmit = async (data: {
     name: string
@@ -53,6 +54,47 @@ export default function NewPortfolioPage() {
     }
   }
 
+  const handleSaveDraft = async (data: {
+    name: string
+    description?: string
+    isPublic: boolean
+    benchmarkSymbol?: string | null
+    holdings: { symbol: string; name?: string; type?: string; allocation: number }[]
+  }) => {
+    try {
+      setIsSavingDraft(true)
+      
+      // Prepare draft data - more lenient validation
+      const draftData = {
+        name: data.name + ' (Draft)',
+        description: data.description ? data.description + ' [Draft]' : 'Portfolio draft - work in progress',
+        isPublic: false, // Always save drafts as private
+        benchmarkSymbol: data.benchmarkSymbol,
+        initialCapital: 10000,
+        holdings: data.holdings
+          .filter(h => h.symbol && h.symbol.trim()) // Only include filled holdings
+          .map(h => ({
+            symbol: h.symbol.trim().toUpperCase(),
+            allocation: h.allocation || 0 // Allow 0 allocation for drafts
+          }))
+      }
+
+      console.log('Saving portfolio draft with data:', draftData)
+
+      const result = await createPortfolioMutation.mutateAsync(draftData)
+      console.log('Portfolio draft saved successfully:', result)
+      
+      // Show success message
+      alert('Portfolio draft saved! You can continue editing it later.')
+      
+    } catch (error) {
+      console.error('Error saving portfolio draft:', error)
+      alert(`Error saving draft: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    } finally {
+      setIsSavingDraft(false)
+    }
+  }
+
   return (
     <div className="container mx-auto px-4 py-6 md:px-6 lg:px-8">
       <div className="max-w-4xl mx-auto space-y-6">
@@ -77,8 +119,10 @@ export default function NewPortfolioPage() {
           <CardContent className="p-6">
             <PortfolioForm 
               onSubmit={handleSubmit}
+              onSaveDraft={handleSaveDraft}
               onCancel={() => router.push('/dashboard')}
               isLoading={createPortfolioMutation.isPending}
+              isSavingDraft={isSavingDraft}
             />
           </CardContent>
         </Card>

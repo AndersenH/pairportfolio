@@ -165,6 +165,8 @@ export default function NewBacktestPage() {
         })
       }
 
+      console.log('Submitting backtest with payload:', backtestPayload)
+
       const response = await fetch('/api/backtests', {
         method: 'POST',
         headers: {
@@ -174,19 +176,25 @@ export default function NewBacktestPage() {
         body: JSON.stringify(backtestPayload),
       })
 
+      console.log('Response status:', response.status)
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}))
+        console.error('Backtest API error:', errorData)
         throw new Error(errorData.error?.message || 'Failed to create backtest')
       }
 
       const result = await response.json()
+      console.log('Backtest result:', result)
       
       if (result.success && result.data?.id) {
+        console.log('Redirecting to backtest:', result.data.id)
         router.push(`/backtests/${result.data.id}`)
       } else {
         throw new Error('Invalid response from server')
       }
     } catch (err) {
+      console.error('Backtest submission error:', err)
       setError(err instanceof Error ? err.message : 'An error occurred')
     } finally {
       setIsSubmitting(false)

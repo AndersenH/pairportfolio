@@ -2,12 +2,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import { MarketDataService } from '@/lib/market-data-service'
 import { bulkMarketDataSchema } from '@/lib/validations'
 import { 
-  withApiHandler, 
   createApiResponse, 
   createApiError, 
   validateRequestBody,
   validateETFSymbol
 } from '@/lib/utils'
+import { withApiHandler } from '@/lib/server-utils'
 
 const marketDataService = new MarketDataService()
 
@@ -43,9 +43,9 @@ export const POST = withApiHandler(
       // Calculate summary statistics
       const summary = {
         requestedSymbols: uniqueSymbols.length,
-        successfulSymbols: Object.keys(data).filter(symbol => data[symbol]?.length > 0).length,
+        successfulSymbols: Object.keys(data).filter(symbol => Array.isArray(data[symbol]) && data[symbol].length > 0).length,
         failedSymbols: Object.keys(data).filter(symbol => (data[symbol]?.length || 0) === 0),
-        totalDataPoints: Object.values(data).reduce((sum, points) => sum + (points?.length || 0), 0),
+        totalDataPoints: Object.values(data).reduce((sum, points) => sum + (Array.isArray(points) ? points.length : 0), 0),
         processingTime: Date.now() - startTime,
       }
 

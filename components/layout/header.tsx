@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { NavigationMenu } from '@/components/ui/navigation-menu'
 import {
   BarChart3,
   User,
@@ -92,15 +93,17 @@ export function Header({ onMenuToggle, isMenuOpen }: HeaderProps) {
   return (
     <header className="border-b bg-background">
       <div className="flex h-16 items-center px-4">
-        {/* Mobile menu button */}
-        <Button
-          variant="ghost"
-          size="icon"
-          className="md:hidden mr-2"
-          onClick={onMenuToggle}
-        >
-          {isMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-        </Button>
+        {/* Mobile menu button - only show when authenticated */}
+        {user && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="md:hidden mr-2"
+            onClick={onMenuToggle}
+          >
+            {isMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+          </Button>
+        )}
 
         {/* Logo */}
         <Link href="/" className="flex items-center space-x-2">
@@ -110,33 +113,118 @@ export function Header({ onMenuToggle, isMenuOpen }: HeaderProps) {
           </span>
         </Link>
 
-        {/* Main navigation - hidden on mobile */}
-        <nav className="mx-6 hidden md:flex items-center space-x-4 lg:space-x-6">
-          <Link
-            href="/dashboard"
-            className="text-sm font-medium transition-colors hover:text-primary"
-          >
-            Dashboard
-          </Link>
-          <Link
-            href="/portfolios"
-            className="text-sm font-medium text-muted-foreground transition-colors hover:text-primary"
-          >
-            Portfolios
-          </Link>
-          <Link
-            href="/backtests"
-            className="text-sm font-medium text-muted-foreground transition-colors hover:text-primary"
-          >
-            Backtests
-          </Link>
-          <Link
-            href="/market-data"
-            className="text-sm font-medium text-muted-foreground transition-colors hover:text-primary"
-          >
-            Market Data
-          </Link>
-        </nav>
+        {/* Main navigation - hidden on mobile and when not authenticated */}
+        {user && (
+          <div className="mx-6 hidden md:flex">
+            <NavigationMenu
+              items={[
+                {
+                  title: 'Dashboard',
+                  href: '/dashboard',
+                },
+                {
+                  title: 'Portfolios',
+                  href: '/portfolios',
+                },
+                {
+                  title: 'Backtest',
+                  items: [
+                    {
+                      title: 'New Backtest',
+                      href: '/backtests/new',
+                      description: 'Run a new portfolio backtest',
+                    },
+                    {
+                      title: 'Results History',
+                      href: '/backtests',
+                      description: 'View your past backtests',
+                    },
+                    {
+                      title: 'Compare Strategies',
+                      href: '/backtests/compare',
+                      description: 'Compare multiple strategies',
+                    },
+                  ],
+                },
+                {
+                  title: 'Research',
+                  items: [
+                    {
+                      title: 'Market Scanner',
+                      href: '/research/scanner',
+                      description: 'Screen and filter ETFs',
+                    },
+                    {
+                      title: 'Correlation Matrix',
+                      href: '/research/correlation',
+                      description: 'Analyze asset relationships',
+                    },
+                    {
+                      title: 'Risk Analysis',
+                      href: '/research/risk',
+                      description: 'Portfolio risk metrics',
+                    },
+                    {
+                      title: 'Sector Analysis',
+                      href: '/research/sectors',
+                      description: 'Sector performance data',
+                    },
+                  ],
+                },
+                {
+                  title: 'Learn',
+                  items: [
+                    {
+                      title: 'Strategy Guide',
+                      href: '/learn/strategies',
+                      description: 'Understanding each strategy',
+                    },
+                    {
+                      title: 'ETF Basics',
+                      href: '/learn/etf-basics',
+                      description: 'Introduction to ETF investing',
+                    },
+                    {
+                      title: 'Tutorials',
+                      href: '/learn/tutorials',
+                      description: 'Step-by-step guides',
+                    },
+                    {
+                      title: 'Glossary',
+                      href: '/learn/glossary',
+                      description: 'Financial terms explained',
+                    },
+                  ],
+                },
+                {
+                  title: 'About',
+                  items: [
+                    {
+                      title: 'How It Works',
+                      href: '/about/methodology',
+                      description: 'Our calculation methods',
+                    },
+                    {
+                      title: 'Data Sources',
+                      href: '/about/data',
+                      description: 'Where our data comes from',
+                    },
+                    {
+                      title: 'Team',
+                      href: '/about/team',
+                      description: 'Meet the team',
+                    },
+                    {
+                      title: 'Changelog',
+                      href: '/about/changelog',
+                      description: 'Version history',
+                    },
+                  ],
+                },
+              ]}
+            />
+          </div>
+        )}
 
         {/* Right side */}
         <div className="ml-auto flex items-center space-x-4">

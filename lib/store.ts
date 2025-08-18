@@ -266,7 +266,7 @@ export const useBacktestStore = create<BacktestState & BacktestActions>()(
           start: null,
           end: null
         },
-        initialCapital: 100000,
+        initialCapital: 10000,
         rebalancingFrequency: 'monthly'
       },
       comparison: {
@@ -337,7 +337,7 @@ export const useBacktestStore = create<BacktestState & BacktestActions>()(
             start: null,
             end: null
           },
-          initialCapital: 100000,
+          initialCapital: 10000,
           rebalancingFrequency: 'monthly'
         }
       }),

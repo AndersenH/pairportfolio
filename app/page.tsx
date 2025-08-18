@@ -16,7 +16,7 @@ import { AssetPerformanceDemo } from '@/components/performance/asset-performance
 import { AssetPerformanceTablePython } from '@/components/performance/asset-performance-table-python'
 import { useMobileResponsive } from '@/lib/client-utils'
 import { BenchmarkSelector } from '@/components/portfolio/portfolio-form'
-import { usePortfolios } from '@/hooks/use-portfolios'
+import { usePortfolios, useDeletePortfolio } from '@/hooks/use-portfolios'
 // Simple toast replacement for now
 const useToast = () => ({
   toast: ({ title, description, variant }: { title: string; description: string; variant?: string }) => {
@@ -167,8 +167,9 @@ const formatAssetPricesData = (assetPrices: Record<string, number[]>, dates: str
       // Find first valid price to use as base for normalization
       let basePrice = prices[0]
       for (let i = 0; i < prices.length; i++) {
-        if (prices[i] && prices[i] > 0 && isFinite(prices[i])) {
-          basePrice = prices[i]
+        const price = prices[i]
+        if (price && price > 0 && isFinite(price)) {
+          basePrice = price
           break
         }
       }
@@ -324,8 +325,13 @@ const calculateAssetPerformanceMetrics = (
     const totalReturn = (finalValue - initialValue) / initialValue
 
     // Calculate annualized return
-    const startDate = new Date(dates[0])
-    const endDate = new Date(dates[dates.length - 1])
+    const firstDate = dates[0]
+    const lastDate = dates[dates.length - 1]
+    if (!firstDate || !lastDate) {
+      throw new Error('No dates available for calculation')
+    }
+    const startDate = new Date(firstDate)
+    const endDate = new Date(lastDate)
     const years = (endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24 * 365.25)
     
     if (years <= 0) {
@@ -339,7 +345,8 @@ const calculateAssetPerformanceMetrics = (
     for (let i = 1; i < values.length; i++) {
       const prevValue = values[i - 1];
       const currentValue = values[i];
-      if (isFinite(prevValue) && isFinite(currentValue) && prevValue > 0) {
+      if (prevValue !== undefined && currentValue !== undefined && 
+          isFinite(prevValue) && isFinite(currentValue) && prevValue > 0) {
         dailyReturns.push((currentValue - prevValue) / prevValue)
       }
     }
@@ -360,12 +367,12 @@ const calculateAssetPerformanceMetrics = (
 
     // Calculate maximum drawdown
     let maxDrawdown = 0
-    let peak = values[0]
+    let peak = values[0] || 0
     for (const value of values) {
-      if (isFinite(value) && value > peak) {
+      if (value !== undefined && isFinite(value) && value > peak) {
         peak = value
       }
-      if (isFinite(value) && peak > 0) {
+      if (value !== undefined && isFinite(value) && peak > 0) {
         const drawdown = (peak - value) / peak
         if (drawdown > maxDrawdown) {
           maxDrawdown = drawdown
@@ -447,9 +454,9 @@ export default function HomePage() {
     }
   })
   const [isRunning, setIsRunning] = useState(false)
-  // Calculate default dates: 5-year window ending today (July 28, 2025)
+  // Calculate default dates: 5-year window ending today
   const getDefaultDates = () => {
-    const today = new Date('2025-07-28')
+    const today = new Date()
     const fiveYearsAgo = new Date(today)
     fiveYearsAgo.setFullYear(today.getFullYear() - 5)
     
@@ -472,6 +479,7 @@ export default function HomePage() {
   const { toast } = useToast()
   const { data: session } = useSession()
   const { data: portfoliosData, isLoading: portfoliosLoading } = usePortfolios(1, 50)
+  const deletePortfolio = useDeletePortfolio()
 
   // Handle loading saved portfolio
   const handleLoadPortfolio = (portfolioId: string) => {
@@ -490,6 +498,40 @@ export default function HomePage() {
       toast({
         title: "Portfolio Loaded",
         description: `Loaded "${selectedPortfolio.name}" with ${selectedPortfolio.holdings.length} holdings.`,
+      })
+    }
+  }
+
+  // Handle deleting saved portfolio
+  const handleDeletePortfolio = async (portfolioId: string) => {
+    const savedPortfolios = portfoliosData?.data || []
+    const portfolioToDelete = savedPortfolios.find(p => p.id === portfolioId)
+    
+    if (!portfolioToDelete) return
+
+    // Confirmation dialog
+    if (!window.confirm(`Are you sure you want to delete "${portfolioToDelete.name}"? This action cannot be undone.`)) {
+      return
+    }
+
+    try {
+      await deletePortfolio.mutateAsync(portfolioId)
+      
+      // Clear the selection if we deleted the currently selected portfolio
+      if (selectedPortfolioId === portfolioId) {
+        setSelectedPortfolioId('')
+      }
+      
+      toast({
+        title: 'Portfolio deleted',
+        description: `"${portfolioToDelete.name}" has been successfully deleted.`,
+      })
+    } catch (error) {
+      console.error('Error deleting portfolio:', error)
+      toast({
+        title: 'Delete failed',
+        description: error instanceof Error ? error.message : 'Failed to delete portfolio. Please try again.',
+        variant: 'destructive'
       })
     }
   }
@@ -783,7 +825,7 @@ export default function HomePage() {
       })
 
       // Fetch benchmark data if a benchmark is selected
-      if (benchmarkSymbol) {
+      if (benchmarkSymbol && startDate && endDate) {
         console.log(`Fetching benchmark data for ${benchmarkSymbol}`)
         const benchmarkTimeSeries = await fetchBenchmarkData(benchmarkSymbol, startDate, endDate)
         setBenchmarkData(benchmarkTimeSeries)
@@ -878,9 +920,8 @@ export default function HomePage() {
   }, [backtestResult, portfolioItems])
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Main Content */}
-      <main className={`container mx-auto px-4 ${isMobile ? 'py-4' : 'py-8'}`}>
+    <>
+      <div className="container mx-auto px-4 py-6 md:px-6 lg:px-8">
         <div className={`grid gap-6 ${isMobile ? 'grid-cols-1' : 'grid-cols-1 lg:grid-cols-3 gap-8'}`}>
           {/* Portfolio Builder Section */}
           <div className={`${isMobile ? 'order-1' : 'lg:col-span-1'}`}>
@@ -894,7 +935,7 @@ export default function HomePage() {
               <CardContent className={`px-0 ${isMobile ? 'space-y-4' : 'space-y-6'}`}>
                 {/* Portfolio Name */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Portfolio Name</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2 pt-1">Portfolio Name</label>
                   <Input 
                     value={portfolioName}
                     onChange={(e) => setPortfolioName(e.target.value)}
@@ -904,7 +945,7 @@ export default function HomePage() {
 
                 {/* Initial Investment */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Initial Investment ($)</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2 pt-1">Initial Investment ($)</label>
                   <Input 
                     type="number"
                     value={initialInvestment}
@@ -916,7 +957,7 @@ export default function HomePage() {
                 {/* Saved Portfolio Selection */}
                 {session && (
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Load Saved Portfolio (Optional)</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2 pt-1">Load Saved Portfolio (Optional)</label>
                     <div className="flex gap-2">
                       <div className="relative flex-1">
                         <select
@@ -943,21 +984,34 @@ export default function HomePage() {
                         )}
                       </div>
                       {selectedPortfolioId && (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            setSelectedPortfolioId('')
-                            toast({
-                              title: "Portfolio Cleared",
-                              description: "Portfolio selection cleared. Continue editing manually.",
-                            })
-                          }}
-                          className="px-3 py-2 flex-shrink-0"
-                        >
-                          <X className="w-4 h-4" />
-                        </Button>
+                        <div className="flex gap-1">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setSelectedPortfolioId('')
+                              toast({
+                                title: "Portfolio Cleared",
+                                description: "Portfolio selection cleared. Continue editing manually.",
+                              })
+                            }}
+                            className="px-3 py-2 flex-shrink-0"
+                            title="Clear selection"
+                          >
+                            <X className="w-4 h-4" />
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleDeletePortfolio(selectedPortfolioId)}
+                            className="px-3 py-2 flex-shrink-0 text-destructive hover:text-destructive"
+                            title="Delete portfolio"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
                       )}
                     </div>
                     <p className="text-xs text-gray-500 mt-1">
@@ -968,7 +1022,7 @@ export default function HomePage() {
 
                 {/* Date Range */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Date Range</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2 pt-1">Date Range</label>
                   <div className={`${isMobile ? 'space-y-2' : 'flex space-x-2'}`}>
                     <Input 
                       type="date" 
@@ -1627,8 +1681,8 @@ export default function HomePage() {
                   title="Portfolio Performance"
                   holdings={holdingsData}
                   showHoldings={showIndividualAssets}
-                  benchmark={benchmarkData}
-                  benchmarkSymbol={benchmarkSymbol}
+                  benchmark={benchmarkData || undefined}
+                  benchmarkSymbol={benchmarkSymbol || undefined}
                   showBenchmark={!!benchmarkSymbol && !!benchmarkData}
                   height={isMobile ? 300 : 350}
                   className="mt-2"
@@ -1649,9 +1703,8 @@ export default function HomePage() {
                         holdings={portfolioItems.map(item => ({
                           id: item.symbol,
                           symbol: item.symbol,
+                          name: null,
                           allocation: item.allocation / 100, // Convert to decimal
-                          createdAt: new Date(),
-                          updatedAt: new Date(),
                           portfolioId: 'temp'
                         }))}
                         title={isMobile ? "Allocation" : "Current Allocation"}
@@ -1731,7 +1784,7 @@ export default function HomePage() {
 
             {/* Python-Enhanced Asset Performance */}
             {backtestResult && 
-             backtestResult.portfolioValue?.length > 0 && 
+             backtestResult.portfolioValue && backtestResult.portfolioValue.length > 0 && 
              (backtestResult.holdings || backtestResult.assetPrices) && 
              Object.keys(backtestResult.holdings || backtestResult.assetPrices || {}).length > 0 && (
               <AssetPerformanceTablePython
@@ -1755,14 +1808,14 @@ export default function HomePage() {
                     profitFactor: 0
                   },
                   drawdown: backtestResult.drawdown || [],
-                  assetPrices: backtestResult.assetPrices || null
+                  assetPrices: backtestResult.assetPrices || undefined
                 }}
                 portfolioAllocation={portfolioItems.reduce((acc, item) => {
                   acc[item.symbol] = item.allocation / 100;
                   return acc;
                 }, {} as Record<string, number>)}
-                preCalculatedAssetPerformance={backtestResult.assetPerformance || []} // Pass pre-calculated data
-                benchmarkSymbol={benchmarkSymbol}
+                preCalculatedAssetPerformance={undefined} // Type mismatch - let component calculate
+                benchmarkSymbol={benchmarkSymbol || undefined}
                 strategy={strategy}
                 strategyParameters={strategy !== 'buy-hold' ? strategyParameters[strategy as keyof typeof strategyParameters] : {}}
                 usePython={true}
@@ -1827,7 +1880,7 @@ export default function HomePage() {
             </Card>
           </div>
         </div>
-      </main>
+      </div>
 
       {/* Footer */}
       <footer className={`bg-gray-800 text-white ${isMobile ? 'py-6 mt-8' : 'py-8 mt-16'}`}>
@@ -1919,6 +1972,6 @@ export default function HomePage() {
           </div>
         </div>
       </footer>
-    </div>
+    </>
   )
 }

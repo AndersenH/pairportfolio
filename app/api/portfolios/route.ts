@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { portfolioSchema, paginationSchema } from '@/lib/validations'
 import { 
-  withApiHandler, 
   createApiResponse, 
   createApiError, 
   validateRequestBody, 
@@ -10,7 +9,7 @@ import {
   createPaginationMeta,
   validateETFSymbol
 } from '@/lib/utils'
-import { requireAuth } from '@/lib/server-utils'
+import { requireAuth, withApiHandler } from '@/lib/server-utils'
 import { z } from 'zod'
 
 export const GET = withApiHandler(

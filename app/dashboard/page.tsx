@@ -10,7 +10,8 @@ import { PortfolioCard } from '@/components/portfolio/portfolio-card'
 import { MetricsDisplay } from '@/components/performance/metrics-display'
 import { PerformanceChart } from '@/components/charts/performance-chart'
 import { AllocationChart } from '@/components/charts/allocation-chart'
-import { usePortfolios } from '@/hooks/use-portfolios'
+import { usePortfolios, useDeletePortfolio } from '@/hooks/use-portfolios'
+import { useToast } from '@/hooks/use-toast'
 import {
   Plus,
   TrendingUp,
@@ -21,11 +22,13 @@ import {
   Calendar,
   BarChart3,
   ArrowRight,
+  Trash2,
 } from 'lucide-react'
 import type { PortfolioWithHoldings, BacktestWithDetails, ChartDataPoint } from '@/types'
+import { format } from 'date-fns'
+import { Eye, CheckCircle, Clock, XCircle } from 'lucide-react'
 
 // Mock data for demonstration
-const mockRecentBacktests: BacktestWithDetails[] = []
 const mockPortfolioData: ChartDataPoint[] = []
 const mockBenchmarkData: ChartDataPoint[] = []
 
@@ -141,25 +144,60 @@ function QuickActions() {
             Run Backtest
           </Link>
         </Button>
-        <Button variant="outline" className="w-full justify-start" asChild>
+        {/* <Button variant="outline" className="w-full justify-start" asChild>
           <Link href="/market-data" as="/market-data">
             <Activity className="h-4 w-4 mr-2" />
             Browse Market Data
           </Link>
-        </Button>
+        </Button> */}
       </CardContent>
     </Card>
   )
 }
 
 function RecentActivity() {
+  const [backtests, setBacktests] = React.useState<any[]>([])
+  const [isLoadingBacktests, setIsLoadingBacktests] = React.useState(true)
+
+  React.useEffect(() => {
+    const fetchBacktests = async () => {
+      try {
+        const response = await fetch('/api/backtests?limit=5')
+        if (response.ok) {
+          const data = await response.json()
+          setBacktests(data.data || [])
+        }
+      } catch (error) {
+        console.error('Error fetching backtests:', error)
+      } finally {
+        setIsLoadingBacktests(false)
+      }
+    }
+    fetchBacktests()
+  }, [])
+
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case 'completed':
+        return <CheckCircle className="h-4 w-4 text-green-600" />
+      case 'running':
+      case 'pending':
+        return <Clock className="h-4 w-4 text-yellow-600" />
+      case 'failed':
+      case 'error':
+        return <XCircle className="h-4 w-4 text-red-600" />
+      default:
+        return null
+    }
+  }
+
   return (
     <Card>
       <CardHeader>
         <div className="flex items-center justify-between">
-          <CardTitle>Recent Activity</CardTitle>
+          <CardTitle>Recent Backtests</CardTitle>
           <Button variant="ghost" size="sm" asChild>
-            <Link href="/backtests" as="/backtests">
+            <Link href="/backtests">
               View All
               <ArrowRight className="h-4 w-4 ml-1" />
             </Link>
@@ -167,41 +205,68 @@ function RecentActivity() {
         </div>
       </CardHeader>
       <CardContent>
-        {mockRecentBacktests.length === 0 ? (
+        {isLoadingBacktests ? (
+          <div className="space-y-3">
+            {[...Array(3)].map((_, i) => (
+              <Skeleton key={i} className="h-16 w-full" />
+            ))}
+          </div>
+        ) : backtests.length === 0 ? (
           <div className="text-center py-8 text-muted-foreground">
             <Calendar className="h-12 w-12 mx-auto mb-4 opacity-50" />
             <p>No recent backtests</p>
             <p className="text-sm">Create a portfolio and run your first backtest</p>
+            <Button className="mt-4" size="sm" asChild>
+              <Link href="/backtests/new">
+                Run Backtest
+              </Link>
+            </Button>
           </div>
         ) : (
           <div className="space-y-3">
-            {mockRecentBacktests.slice(0, 5).map((backtest) => (
-              <div
-                key={backtest.id}
-                className="flex items-center justify-between p-3 rounded-lg border"
-              >
-                <div className="space-y-1">
-                  <div className="font-medium">{backtest.portfolio.name}</div>
-                  <div className="text-sm text-muted-foreground">
-                    {backtest.strategy.name} strategy
+            {backtests.slice(0, 5).map((backtest) => {
+              const metrics = backtest.metrics
+              return (
+                <div
+                  key={backtest.id}
+                  className="flex items-center justify-between p-3 rounded-lg border hover:bg-muted/50 transition-colors"
+                >
+                  <div className="flex-1 space-y-1">
+                    <div className="flex items-center gap-2">
+                      {getStatusIcon(backtest.status)}
+                      <div className="font-medium">
+                        {backtest.portfolio?.name || 'Portfolio'}
+                      </div>
+                    </div>
+                    <div className="text-sm text-muted-foreground">
+                      {backtest.strategy?.name || 'Strategy'} • {format(new Date(backtest.startDate), 'MMM d')} - {format(new Date(backtest.endDate), 'MMM d, yyyy')}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {backtest.status === 'completed' && metrics?.totalReturn !== undefined ? (
+                      <Badge
+                        variant={metrics.totalReturn >= 0 ? 'default' : 'destructive'}
+                      >
+                        {metrics.totalReturn >= 0 ? '+' : ''}
+                        {metrics.totalReturn.toFixed(1)}%
+                      </Badge>
+                    ) : backtest.status === 'running' ? (
+                      <Badge variant="secondary">Running</Badge>
+                    ) : backtest.status === 'pending' ? (
+                      <Badge variant="outline">Pending</Badge>
+                    ) : backtest.status === 'failed' || backtest.status === 'error' ? (
+                      <Badge variant="destructive">Failed</Badge>
+                    ) : null}
+                    <Button size="sm" variant="ghost" asChild>
+                      <Link href={`/backtests/${backtest.id}`}>
+                        <Eye className="h-4 w-4" />
+                        <span className="ml-1">View</span>
+                      </Link>
+                    </Button>
                   </div>
                 </div>
-                <div className="text-right">
-                  {backtest.metrics && backtest.metrics.totalReturn !== null ? (
-                    <Badge
-                      variant={
-                        Number(backtest.metrics.totalReturn) > 0 ? 'success' : 'destructive'
-                      }
-                    >
-                      {Number(backtest.metrics.totalReturn) > 0 ? '+' : ''}
-                      {(Number(backtest.metrics.totalReturn) * 100).toFixed(1)}%
-                    </Badge>
-                  ) : (
-                    <Badge variant="secondary">Running</Badge>
-                  )}
-                </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         )}
       </CardContent>
@@ -212,6 +277,8 @@ function RecentActivity() {
 export default function DashboardPage() {
   const { data: portfoliosData, isLoading, error } = usePortfolios(1, 10)
   const portfolios = portfoliosData?.data || []
+  const deletePortfolio = useDeletePortfolio()
+  const { toast } = useToast()
   
   // Debug logging
   React.useEffect(() => {
@@ -219,9 +286,33 @@ export default function DashboardPage() {
       isLoading,
       error,
       portfoliosData,
-      portfolios: portfolios.length
+      portfolios: portfolios.length,
+      portfoliosList: portfolios.map(p => ({ id: p.id, name: p.name }))
     })
   }, [isLoading, error, portfoliosData, portfolios.length])
+
+  const handleDeletePortfolio = async (portfolio: PortfolioWithHoldings) => {
+    // Confirmation dialog
+    if (!window.confirm(`Are you sure you want to delete "${portfolio.name}"? This action cannot be undone.`)) {
+      return
+    }
+
+    try {
+      await deletePortfolio.mutateAsync(portfolio.id)
+      toast({
+        title: 'Portfolio deleted',
+        description: `"${portfolio.name}" has been successfully deleted.`,
+        variant: 'default'
+      })
+    } catch (error) {
+      console.error('Error deleting portfolio:', error)
+      toast({
+        title: 'Delete failed',
+        description: error instanceof Error ? error.message : 'Failed to delete portfolio. Please try again.',
+        variant: 'destructive'
+      })
+    }
+  }
 
   return (
     <div className="container mx-auto px-4 py-6 md:px-6 lg:px-8">
@@ -315,10 +406,7 @@ export default function DashboardPage() {
                         key={portfolio.id}
                         portfolio={portfolio}
                         variant="compact"
-                        onBacktest={() => {
-                          // Navigate to backtest page with portfolio pre-selected
-                          window.location.href = `/backtests/new?portfolio=${portfolio.id}`
-                        }}
+                        onDelete={() => handleDeletePortfolio(portfolio)}
                       />
                     ))}
                   </div>

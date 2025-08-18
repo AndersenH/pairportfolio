@@ -137,10 +137,16 @@ export function useDeletePortfolio() {
     mutationFn: async (id: string): Promise<void> => {
       const response = await fetch(`${API_BASE}/${id}`, {
         method: 'DELETE',
+        credentials: 'include', // Include cookies for authentication
+        headers: {
+          'Content-Type': 'application/json'
+        }
       })
 
       if (!response.ok) {
-        throw new Error('Failed to delete portfolio')
+        const errorText = await response.text().catch(() => 'Unknown error')
+        console.error('Delete portfolio failed:', errorText)
+        throw new Error(`Failed to delete portfolio: ${response.status} ${response.statusText}`)
       }
     },
     onSuccess: () => {

@@ -22,6 +22,8 @@ import {
   Settings,
   RotateCcw,
   Edit3,
+  Save,
+  Bookmark,
 } from 'lucide-react'
 import { cn } from '@/lib/client-utils'
 import type { PortfolioWithHoldings } from '@/types'
@@ -76,13 +78,31 @@ const portfolioSchema = z.object({
   ).min(1, 'At least one holding is required'),
 })
 
+// More lenient schema for draft saves
+const portfolioDraftSchema = z.object({
+  name: z.string().min(1, 'Portfolio name is required'),
+  description: z.string().optional(),
+  isPublic: z.boolean().default(false),
+  benchmarkSymbol: z.string().optional().nullable(),
+  holdings: z.array(
+    z.object({
+      symbol: z.string().min(1, 'Stock/ETF symbol is required'),
+      name: z.string().optional(),
+      type: z.string().optional(),
+      allocation: z.number().min(0).max(1), // Allow 0 allocation for drafts
+    })
+  ).min(1, 'At least one holding is required'),
+})
+
 type PortfolioFormData = z.infer<typeof portfolioSchema>
 
 interface PortfolioFormProps {
   initialData?: Partial<PortfolioFormData>
   onSubmit: (data: PortfolioFormData) => void
+  onSaveDraft?: (data: PortfolioFormData) => void
   onCancel?: () => void
   isLoading?: boolean
+  isSavingDraft?: boolean
 }
 
 
@@ -769,7 +789,7 @@ export function BacktestConfigurationForm({
       strategyId: initialData?.strategyId || 'buy-hold',
       startDate: initialData?.startDate || new Date(new Date().getFullYear() - 5, new Date().getMonth(), new Date().getDate()),
       endDate: initialData?.endDate || new Date(),
-      initialCapital: initialData?.initialCapital || 100000,
+      initialCapital: initialData?.initialCapital || 10000,
       rebalancingFrequency: initialData?.rebalancingFrequency || 'monthly',
     },
   })
@@ -1623,8 +1643,10 @@ Features:
 export function PortfolioForm({
   initialData,
   onSubmit,
+  onSaveDraft,
   onCancel,
   isLoading = false,
+  isSavingDraft = false,
 }: PortfolioFormProps) {
 
   const form = useForm<PortfolioFormData>({
@@ -1907,38 +1929,64 @@ export function PortfolioForm({
           </div>
 
           {/* Form Actions */}
-          <div className="flex justify-end space-x-3 pt-6 border-t">
-            {onCancel && (
-              <Button type="button" variant="outline" onClick={onCancel}>
-                Cancel
+          <div className="flex justify-between pt-6 border-t">
+            <div className="flex space-x-3">
+              {onCancel && (
+                <Button type="button" variant="outline" onClick={onCancel}>
+                  Cancel
+                </Button>
+              )}
+            </div>
+            <div className="flex space-x-3">
+              {onSaveDraft && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={
+                    isSavingDraft || 
+                    isLoading ||
+                    !form.getValues('name') || 
+                    !form.getValues('holdings')?.length
+                  }
+                  onClick={() => {
+                    const currentData = form.getValues()
+                    // Only require name and at least one holding for draft save
+                    if (currentData.name && currentData.holdings?.length > 0) {
+                      onSaveDraft(currentData)
+                    }
+                  }}
+                >
+                  <Bookmark className="h-4 w-4 mr-2" />
+                  {isSavingDraft ? 'Saving Draft...' : 'Save Draft'}
+                </Button>
+              )}
+              <Button
+                type="submit"
+                disabled={
+                  isLoading || 
+                  allocationStatus.status === 'over' || 
+                  allocationStatus.status === 'under' ||
+                  !form.formState.isValid
+                }
+              >
+                {isLoading ? 'Saving...' : initialData ? 'Update Portfolio' : 'Create Portfolio'}
               </Button>
-            )}
-            <Button
-              type="submit"
-              disabled={
-                isLoading || 
-                allocationStatus.status === 'over' || 
-                allocationStatus.status === 'under' ||
-                !form.formState.isValid
-              }
-            >
-              {isLoading ? 'Saving...' : initialData ? 'Update Portfolio' : 'Create Portfolio'}
-            </Button>
-            
-            {/* Show form errors */}
-            {Object.keys(form.formState.errors).length > 0 && (
-              <div className="mt-2 text-sm text-destructive">
-                <p>Please fix the following errors:</p>
-                <ul className="list-disc list-inside mt-1">
-                  {form.formState.errors.name && <li>Portfolio name is required</li>}
-                  {form.formState.errors.holdings && <li>At least one holding is required</li>}
-                  {Object.entries(form.formState.errors.holdings || {}).map(([index, error]: [string, any]) => (
-                    error?.symbol && <li key={index}>Holding {parseInt(index) + 1}: Symbol is required</li>
-                  ))}
-                </ul>
-              </div>
-            )}
+            </div>
           </div>
+            
+          {/* Show form errors */}
+          {Object.keys(form.formState.errors).length > 0 && (
+            <div className="mt-2 text-sm text-destructive">
+              <p>Please fix the following errors:</p>
+              <ul className="list-disc list-inside mt-1">
+                {form.formState.errors.name && <li>Portfolio name is required</li>}
+                {form.formState.errors.holdings && <li>At least one holding is required</li>}
+                {Object.entries(form.formState.errors.holdings || {}).map(([index, error]: [string, any]) => (
+                  error?.symbol && <li key={index}>Holding {parseInt(index) + 1}: Symbol is required</li>
+                ))}
+              </ul>
+            </div>
+          )}
         </form>
 
       </CardContent>

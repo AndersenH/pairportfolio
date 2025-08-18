@@ -170,9 +170,9 @@ export default function LoginPage() {
               Sign up
             </Link>
           </div>
-          <Link href="/auth/reset-password" className="text-sm text-center text-muted-foreground hover:text-indigo-600">
+          {/* <Link href="/auth/reset-password" className="text-sm text-center text-muted-foreground hover:text-indigo-600">
             Forgot your password?
-          </Link>
+          </Link> */}
         </CardFooter>
       </Card>
     </div>

@@ -3,11 +3,11 @@ import { z } from 'zod'
 import { runPythonWithData } from '@/lib/python-runner'
 import { pythonAssetRunner } from '@/lib/python-asset-runner'
 import { 
-  withApiHandler, 
   createApiResponse, 
   createApiError, 
   validateRequestBody
 } from '@/lib/utils'
+import { withApiHandler } from '@/lib/server-utils'
 
 // Schema for strategy parameters
 const strategyParametersSchema = z.union([
@@ -175,6 +175,24 @@ export async function POST(request: NextRequest) {
       // Continue without asset performance data rather than failing the entire request
     }
     
+    // Transform snake_case metrics to camelCase
+    const transformedMetrics = backtestResult.metrics ? {
+      totalReturn: backtestResult.metrics.total_return || 0,
+      annualizedReturn: backtestResult.metrics.annualized_return || 0,
+      volatility: backtestResult.metrics.volatility || 0,
+      sharpeRatio: backtestResult.metrics.sharpe_ratio || 0,
+      maxDrawdown: backtestResult.metrics.max_drawdown || 0,
+      maxDrawdownDuration: backtestResult.metrics.max_drawdown_duration || 0,
+      sortinoRatio: backtestResult.metrics.sortino_ratio || 0,
+      calmarRatio: backtestResult.metrics.calmar_ratio || 0,
+      var95: backtestResult.metrics.var_95 || 0,
+      cvar95: backtestResult.metrics.cvar_95 || 0,
+      winRate: backtestResult.metrics.win_rate || 0,
+      profitFactor: backtestResult.metrics.profit_factor || 0,
+      beta: backtestResult.metrics.beta || null,
+      alpha: backtestResult.metrics.alpha || null
+    } : {}
+    
     // Convert Python result to expected format with time series
     const result = {
       id: `demo-${Date.now()}`,
@@ -186,14 +204,23 @@ export async function POST(request: NextRequest) {
       returns: backtestResult.returns || [],
       drawdown: backtestResult.drawdown || [],
       holdings: holdingsTimeSeries, // Transformed holdings time series
-      performanceMetrics: backtestResult.metrics || {},
+      performanceMetrics: transformedMetrics,
       assetPerformance: assetPerformanceData || [], // Individual asset performance metrics
       period: {
         startDate: validatedData.startDate,
         endDate: validatedData.endDate
       },
       strategy: validatedData.strategy,
-      benchmarkComparison: backtestResult.benchmark_comparison,
+      benchmarkComparison: backtestResult.benchmark_comparison ? {
+        benchmarkSymbol: backtestResult.benchmark_comparison.benchmark_symbol || validatedData.benchmarkSymbol,
+        benchmarkReturn: backtestResult.benchmark_comparison.benchmark_return || 0,
+        benchmarkVolatility: backtestResult.benchmark_comparison.benchmark_volatility || 0,
+        benchmarkSharpe: backtestResult.benchmark_comparison.benchmark_sharpe || 0,
+        beta: backtestResult.benchmark_comparison.beta || 0,
+        alpha: backtestResult.benchmark_comparison.alpha || 0,
+        correlation: backtestResult.benchmark_comparison.correlation || 0,
+        trackingError: backtestResult.benchmark_comparison.tracking_error || 0
+      } : undefined,
       assetPrices: backtestResult.asset_prices || null // Individual asset price data for enhanced calculations
     }
     

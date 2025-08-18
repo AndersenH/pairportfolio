@@ -2,13 +2,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { portfolioUpdateSchema } from '@/lib/validations'
 import { 
-  withApiHandler, 
   createApiResponse, 
   createApiError, 
   validateRequestBody,
   validateETFSymbol
 } from '@/lib/utils'
-import { requireAuth } from '@/lib/server-utils'
+import { requireAuth, withApiHandler } from '@/lib/server-utils'
 
 interface RouteParams {
   params: {
@@ -34,8 +33,7 @@ export const GET = withApiHandler(
         user: {
           select: {
             id: true,
-            firstName: true,
-            lastName: true,
+            name: true,
             email: true,
           },
         },
@@ -177,8 +175,7 @@ export const PUT = withApiHandler(
           user: {
             select: {
               id: true,
-              firstName: true,
-              lastName: true,
+              name: true,
               email: true,
             },
           },

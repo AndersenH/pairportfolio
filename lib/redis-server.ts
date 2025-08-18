@@ -26,14 +26,12 @@ try {
     })
     
     redis.on('error', (error) => {
-      console.warn('Redis connection error, falling back to in-memory cache:', error)
+      // Silently fall back to in-memory cache - Redis is optional
       redis = null
     })
-  } else {
-    console.warn('Redis URL not configured or running on client, using in-memory cache')
   }
 } catch (error) {
-  console.warn('Failed to create Redis instance, using in-memory cache:', error)
+  // Silently fall back to in-memory cache
   redis = null
 }
 

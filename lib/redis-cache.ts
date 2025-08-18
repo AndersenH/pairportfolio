@@ -132,7 +132,7 @@ export const cache = {
 
       return JSON.parse(value)
     } catch (error) {
-      console.error('Cache get error:', error)
+      // Silently return null on cache error
       return null
     }
   },
@@ -151,7 +151,7 @@ export const cache = {
 
       await client.setex(fullKey, ttl, serializedValue)
     } catch (error) {
-      console.error('Cache set error:', error)
+      // Silently fail on cache set error
     }
   },
 
@@ -161,7 +161,7 @@ export const cache = {
       const fullKey = namespace ? `${namespace}:${key}` : key
       await client.del(fullKey)
     } catch (error) {
-      console.error('Cache del error:', error)
+      // Silently fail on cache delete error
     }
   },
 
@@ -173,7 +173,7 @@ export const cache = {
         await client.del(...keys)
       }
     } catch (error) {
-      console.error('Cache invalidate pattern error:', error)
+      // Silently fail on cache invalidate error
     }
   },
 
@@ -192,7 +192,7 @@ export const cache = {
         }
       })
     } catch (error) {
-      console.error('Cache mget error:', error)
+      // Return null values on cache mget error
       return keys.map(() => null)
     }
   },
@@ -210,7 +210,7 @@ export const cache = {
       
       await pipeline.exec()
     } catch (error) {
-      console.error('Cache mset error:', error)
+      // Silently fail on cache mset error
     }
   },
 
@@ -221,7 +221,7 @@ export const cache = {
       const result = await client.exists(fullKey)
       return result === 1
     } catch (error) {
-      console.error('Cache exists error:', error)
+      // Return false on cache exists error
       return false
     }
   },
@@ -232,7 +232,7 @@ export const cache = {
       const fullKey = namespace ? `${namespace}:${key}` : key
       return await client.ttl(fullKey)
     } catch (error) {
-      console.error('Cache TTL error:', error)
+      // Return -1 on cache TTL error
       return -1
     }
   },
@@ -243,7 +243,7 @@ export const cache = {
       const fullKey = namespace ? `${namespace}:${key}` : key
       return await client.incr(fullKey)
     } catch (error) {
-      console.error('Cache incr error:', error)
+      // Return 0 on cache incr error
       return 0
     }
   },
@@ -254,7 +254,7 @@ export const cache = {
       const fullKey = namespace ? `${namespace}:${key}` : key
       await client.expire(fullKey, ttl)
     } catch (error) {
-      console.error('Cache expire error:', error)
+      // Silently fail on cache expire error
     }
   },
 
@@ -413,7 +413,7 @@ export const rateLimit = {
         resetTime
       }
     } catch (error) {
-      console.error('Rate limit check error:', error)
+      // Default to allowing the request on rate limit error
       return {
         allowed: true,
         remaining: limit - 1,

@@ -13,6 +13,7 @@ import {
   Calendar,
   DollarSign,
   Briefcase,
+  Trash2,
 } from 'lucide-react'
 import type { PortfolioWithHoldings } from '@/types'
 import { format } from 'date-fns'
@@ -56,34 +57,41 @@ export function PortfolioCard({
 
   if (variant === 'compact') {
     return (
-      <Card className={className}>
-        <CardContent className="p-4">
-          <div className="flex items-center justify-between">
-            <div className="space-y-1">
+      <Card className={`${className} cursor-pointer hover:shadow-md transition-shadow`}>
+        <Link href={`/portfolios/${portfolio.id}`} className="block">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div className="space-y-1">
+                <div className="flex items-center space-x-2">
+                  <h3 className="font-medium">{portfolio.name}</h3>
+                  <Badge variant={portfolio.isPublic ? 'default' : 'secondary'}>
+                    {portfolio.isPublic ? 'Public' : 'Private'}
+                  </Badge>
+                </div>
+                <div className="text-sm text-muted-foreground">
+                  {portfolio.holdings.length} holdings • Click to view performance
+                </div>
+              </div>
               <div className="flex items-center space-x-2">
-                <h3 className="font-medium">{portfolio.name}</h3>
-                <Badge variant={portfolio.isPublic ? 'default' : 'secondary'}>
-                  {portfolio.isPublic ? 'Public' : 'Private'}
-                </Badge>
-              </div>
-              <div className="text-sm text-muted-foreground">
-                {portfolio.holdings.length} holdings
+                {onDelete && (
+                  <Button 
+                    size="sm" 
+                    variant="outline" 
+                    onClick={(e) => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      onDelete()
+                    }}
+                    className="text-destructive hover:text-destructive"
+                    title="Delete portfolio"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </Button>
+                )}
               </div>
             </div>
-            <div className="flex items-center space-x-2">
-              <Button size="sm" asChild>
-                <Link href={`/portfolios/${portfolio.id}`}>
-                  View
-                </Link>
-              </Button>
-              {onBacktest && (
-                <Button size="sm" variant="outline" onClick={onBacktest}>
-                  Backtest
-                </Button>
-              )}
-            </div>
-          </div>
-        </CardContent>
+          </CardContent>
+        </Link>
       </Card>
     )
   }
@@ -203,18 +211,18 @@ export function PortfolioCard({
             <DollarSign className="h-4 w-4 text-muted-foreground" />
             <div>
               <div className="text-lg font-medium">
-                {(totalAllocation * 100).toFixed(0)}%
+                {formatCurrency(10000)}
               </div>
-              <div className="text-xs text-muted-foreground">Allocated</div>
+              <div className="text-xs text-muted-foreground">Initial Value</div>
             </div>
           </div>
           <div className="flex items-center space-x-2">
-            <Calendar className="h-4 w-4 text-muted-foreground" />
+            <TrendingUp className="h-4 w-4 text-muted-foreground" />
             <div>
-              <div className="text-sm font-medium">
-                {format(new Date(portfolio.createdAt), 'MMM dd')}
+              <div className="text-lg font-medium">
+                {(totalAllocation * 100).toFixed(0)}%
               </div>
-              <div className="text-xs text-muted-foreground">Created</div>
+              <div className="text-xs text-muted-foreground">Allocated</div>
             </div>
           </div>
         </div>

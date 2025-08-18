@@ -160,8 +160,10 @@ export function AssetPerformanceTable({
             }
             
             // Calculate contribution to portfolio return
-            const portfolioTotalReturn = portfolioValues.length > 0 ? 
-              (portfolioValues[portfolioValues.length - 1] - portfolioValues[0]) / portfolioValues[0] : 0
+            const firstValue = portfolioValues[0]
+            const lastValue = portfolioValues[portfolioValues.length - 1]
+            const portfolioTotalReturn = portfolioValues.length > 0 && firstValue !== undefined && lastValue !== undefined ? 
+              (lastValue - firstValue) / firstValue : 0
             const contrib = avgWeight * portfolioTotalReturn
             
             assetPerformanceData = {

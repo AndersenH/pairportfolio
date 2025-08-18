@@ -273,7 +273,7 @@ export default function PortfoliosPage() {
         /* Portfolio Grid */
         <div className="grid gap-6 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
           {filteredPortfolios.map((portfolio) => (
-            <Card key={portfolio.id} className="hover:shadow-lg transition-shadow">
+            <Card key={portfolio.id} className="hover:shadow-lg transition-shadow cursor-pointer" onClick={() => router.push(`/portfolios/${portfolio.id}`)}>
               <CardHeader>
                 <div className="flex justify-between items-start">
                   <div className="flex-1">
@@ -286,9 +286,9 @@ export default function PortfoliosPage() {
                   </div>
                   <div className="flex items-center gap-1">
                     {portfolio.isPublic ? (
-                      <Unlock className="w-4 h-4 text-green-600" title="Public" />
+                      <Unlock className="w-4 h-4 text-green-600" />
                     ) : (
-                      <Lock className="w-4 h-4 text-gray-400" title="Private" />
+                      <Lock className="w-4 h-4 text-gray-400" />
                     )}
                   </div>
                 </div>
@@ -329,21 +329,26 @@ export default function PortfoliosPage() {
 
                 {/* Action Buttons */}
                 <div className="flex gap-2 flex-wrap">
-                  <Button size="sm" variant="outline" className="flex-1">
-                    <Play className="w-3 h-3 mr-1" />
-                    Backtest
-                  </Button>
+                  <div className="flex-1 text-sm text-gray-500">
+                    Click card to view performance
+                  </div>
                   <Button 
                     size="sm" 
                     variant="outline"
-                    onClick={() => togglePortfolioVisibility(portfolio.id, portfolio.isPublic)}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      togglePortfolioVisibility(portfolio.id, portfolio.isPublic)
+                    }}
                   >
                     {portfolio.isPublic ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
                   </Button>
                   <Button 
                     size="sm" 
                     variant="outline"
-                    onClick={() => deletePortfolio(portfolio.id)}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      deletePortfolio(portfolio.id)
+                    }}
                     className="text-red-600 hover:text-red-700"
                   >
                     <Trash2 className="w-3 h-3" />

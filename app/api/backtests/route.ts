@@ -3,14 +3,13 @@ import { prisma } from '@/lib/db'
 import { BacktestService } from '@/lib/backtest-service'
 import { backtestSchema, paginationSchema } from '@/lib/validations'
 import { 
-  withApiHandler, 
   createApiResponse, 
   createApiError, 
   validateRequestBody,
   validateQueryParams,
   createPaginationMeta
 } from '@/lib/utils'
-import { requireAuth } from '@/lib/server-utils'
+import { requireAuth, withApiHandler } from '@/lib/server-utils'
 
 const backtestService = new BacktestService()
 
@@ -56,7 +55,9 @@ export const GET = withApiHandler(
 export const POST = withApiHandler(
   async (request: NextRequest) => {
     const user = await requireAuth(request)
+    console.log('Backtest POST - User authenticated:', user.id)
     const validatedData = await validateRequestBody(backtestSchema)(request)
+    console.log('Backtest POST - Validated data:', validatedData)
 
     try {
       // Get default strategy if none provided

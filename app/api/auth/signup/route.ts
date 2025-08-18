@@ -51,8 +51,8 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Signup error:', error)
     console.error('Error type:', typeof error)
-    console.error('Error name:', error?.constructor?.name)
-    console.error('Error message:', error?.message)
+    console.error('Error name:', (error as any)?.constructor?.name)
+    console.error('Error message:', (error as any)?.message)
     console.error('Full error:', JSON.stringify(error, null, 2))
     
     if (error instanceof z.ZodError) {
@@ -65,8 +65,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       { 
         error: 'Failed to create account', 
-        details: error?.message || 'Unknown error',
-        type: error?.constructor?.name 
+        details: (error as any)?.message || 'Unknown error',
+        type: (error as any)?.constructor?.name 
       },
       { status: 500 }
     )

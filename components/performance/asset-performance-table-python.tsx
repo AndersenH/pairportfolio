@@ -356,7 +356,7 @@ export function AssetPerformanceTablePython({
         sharpeRatio: isFinite(assetPerformanceData.sharpeRatio) ? assetPerformanceData.sharpeRatio : 0,
         maxDrawdown: isFinite(assetPerformanceData.maxDrawdown) ? Math.max(0, Math.abs(assetPerformanceData.maxDrawdown)) : 0,
         contribution: isFinite(assetPerformanceData.contribution) ? assetPerformanceData.contribution : 0,
-        allocation: isFinite(portfolioAllocation[symbol]) ? portfolioAllocation[symbol] : 0,
+        allocation: portfolioAllocation[symbol] !== undefined && isFinite(portfolioAllocation[symbol]) ? portfolioAllocation[symbol] : 0,
         percentageTimeInvested: isFinite(percentageTimeInvested) ? Math.max(0, Math.min(1, percentageTimeInvested)) : 0
       }
       
@@ -373,10 +373,20 @@ export function AssetPerformanceTablePython({
     })
   }, [results, portfolioAllocation, preCalculatedAssetPerformance])
 
-  // Calculate when results change
+  // Memoize calculation trigger to prevent infinite loops
+  const shouldCalculate = React.useMemo(() => {
+    return (
+      !isCalculating && 
+      (assetPerformance.length === 0 || preCalculatedAssetPerformance.length > 0)
+    )
+  }, [isCalculating, assetPerformance.length, preCalculatedAssetPerformance.length])
+
+  // Calculate when key data changes or initially
   React.useEffect(() => {
-    calculateAssetPerformance()
-  }, [calculateAssetPerformance])
+    if (shouldCalculate) {
+      calculateAssetPerformance()
+    }
+  }, [shouldCalculate, calculateAssetPerformance])
 
   // Sorting logic
   const sortedAssets = React.useMemo(() => {

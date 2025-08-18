@@ -44,6 +44,7 @@ export async function comparePasswords(password: string, hashedPassword: string)
 // API response utilities
 export function createApiResponse(data?: any, meta?: any) {
   return {
+    success: true,
     data,
     meta: {
       timestamp: new Date().toISOString(),
@@ -102,65 +103,7 @@ export function validateQueryParams<T>(schema: z.ZodSchema<T>) {
   }
 }
 
-// API handler wrapper
-export function withApiHandler(
-  handler: (request: NextRequest, context?: any) => Promise<NextResponse>,
-  options: {
-    requireAuth?: boolean
-    rateLimit?: { limit: number; windowMs: number }
-    allowedMethods?: string[]
-  } = {}
-) {
-  return async (request: NextRequest, context?: any) => {
-    try {
-      // Method validation
-      if (options.allowedMethods && !options.allowedMethods.includes(request.method)) {
-        return createApiError('METHOD_NOT_ALLOWED', 'Method not allowed', null, 405)
-      }
 
-      // Rate limiting - import server-only function dynamically
-      if (options.rateLimit) {
-        const { applyRateLimit } = await import('@/lib/server-utils')
-        const rateLimitResult = await applyRateLimit(
-          request,
-          undefined,
-          options.rateLimit.limit,
-          options.rateLimit.windowMs
-        )
-        
-        // Add rate limit headers
-        const headers = new Headers()
-        headers.set('X-RateLimit-Limit', options.rateLimit.limit.toString())
-        headers.set('X-RateLimit-Remaining', rateLimitResult.remaining.toString())
-        headers.set('X-RateLimit-Reset', rateLimitResult.resetTime.toString())
-      }
-
-      // Authentication - import server-only function dynamically
-      if (options.requireAuth) {
-        const { requireAuth } = await import('@/lib/server-utils')
-        await requireAuth(request)
-      }
-
-      return await handler(request, context)
-    } catch (error) {
-      console.error('API handler error:', error)
-      
-      if (error instanceof Error) {
-        if (error.message === 'Unauthorized') {
-          return createApiError('UNAUTHORIZED', 'Authentication required', null, 401)
-        }
-        if (error.message === 'Rate limit exceeded') {
-          return createApiError('RATE_LIMIT_EXCEEDED', 'Too many requests', null, 429)
-        }
-        if (error.message.includes('Validation error')) {
-          return createApiError('VALIDATION_ERROR', error.message, null, 400)
-        }
-      }
-      
-      return createApiError('INTERNAL_ERROR', 'Internal server error', null, 500)
-    }
-  }
-}
 
 // Pagination utilities
 export function createPaginationMeta(page: number, limit: number, total: number) {

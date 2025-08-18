@@ -1,6 +1,7 @@
 'use client'
 
 import * as React from 'react'
+import { createClient } from '@/lib/supabase/client'
 import { Header } from './header'
 import { Sidebar } from './sidebar'
 
@@ -9,10 +10,26 @@ interface AppShellProps {
 }
 
 export function AppShell({ children }: AppShellProps) {
+  const [showSidebar, setShowSidebar] = React.useState(false)
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false)
+  const supabase = createClient()
 
   const toggleMobileMenu = () => setIsMobileMenuOpen(!isMobileMenuOpen)
   const closeMobileMenu = () => setIsMobileMenuOpen(false)
+
+  React.useEffect(() => {
+    // Get initial session
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      setShowSidebar(!!user)
+    })
+
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setShowSidebar(!!session?.user)
+    })
+
+    return () => subscription.unsubscribe()
+  }, [])
 
   // Prevent body scroll when mobile menu is open
   React.useEffect(() => {
@@ -30,7 +47,7 @@ export function AppShell({ children }: AppShellProps) {
   return (
     <>
       <Header onMenuToggle={toggleMobileMenu} isMenuOpen={isMobileMenuOpen} />
-      <Sidebar isOpen={isMobileMenuOpen} onClose={closeMobileMenu} />
+      {showSidebar && <Sidebar isOpen={isMobileMenuOpen} onClose={closeMobileMenu} />}
       <main className="min-h-screen">
         {children}
       </main>

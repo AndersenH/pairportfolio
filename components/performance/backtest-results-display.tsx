@@ -26,6 +26,7 @@ import {
   AreaChart,
   Area,
   PieChart as RechartsPieChart,
+  Pie,
   Cell
 } from 'recharts';
 import { AssetPerformanceTablePython } from './asset-performance-table-python';
@@ -38,6 +39,7 @@ interface BacktestResultsDisplayProps {
   className?: string;
   preCalculatedAssetPerformance?: any[]; // Pre-calculated asset performance data
   benchmarkSymbol?: string; // Benchmark symbol for display
+  initialCapital?: number; // Initial capital for the backtest
 }
 
 interface ChartDataPoint {
@@ -57,7 +59,8 @@ export function BacktestResultsDisplay({
   portfolioAllocation, 
   className,
   preCalculatedAssetPerformance = [],
-  benchmarkSymbol
+  benchmarkSymbol,
+  initialCapital = 10000
 }: BacktestResultsDisplayProps) {
   const [showBenchmark, setShowBenchmark] = React.useState(true);
   
@@ -71,16 +74,52 @@ export function BacktestResultsDisplay({
   
   // Format chart data
   const formatChartData = (): ChartDataPoint[] => {
-    if (!results?.portfolioValues || !results?.dates || !results?.drawdown) return [];
+    console.log('BacktestResultsDisplay - formatting chart data:', {
+      hasPortfolioValues: !!results?.portfolioValues,
+      portfolioValuesLength: results?.portfolioValues?.length,
+      hasDates: !!results?.dates,
+      datesLength: results?.dates?.length,
+      hasDrawdown: !!results?.drawdown,
+      drawdownLength: results?.drawdown?.length,
+      resultKeys: Object.keys(results || {})
+    });
     
-    return results.dates.map((date: string, i: number) => ({
+    // If no data, create a simple default chart showing initial capital
+    if (!results?.portfolioValues || !results?.dates) {
+      console.log('BacktestResultsDisplay - no data, showing default chart');
+      const today = new Date();
+      const oneYearAgo = new Date(today);
+      oneYearAgo.setFullYear(today.getFullYear() - 1);
+      
+      // Create simple two-point chart showing flat initial capital
+      return [
+        {
+          date: oneYearAgo.toISOString().substring(0, 10),
+          value: initialCapital,
+          drawdown: 0,
+          benchmark: initialCapital
+        },
+        {
+          date: today.toISOString().substring(0, 10),
+          value: initialCapital,
+          drawdown: 0,
+          benchmark: initialCapital
+        }
+      ];
+    }
+    
+    // If we have dates and values but no drawdown, calculate it or use 0
+    const chartData = results.dates.map((date: string, i: number) => ({
       date: date.substring(0, 10),
-      value: results.portfolioValues[i],
-      drawdown: results.drawdown[i] * 100, // Convert to percentage
+      value: results.portfolioValues[i] || initialCapital,
+      drawdown: results.drawdown?.[i] ? results.drawdown[i] * 100 : 0, // Convert to percentage or use 0
       benchmark: results.benchmarkComparison ? 
         results.portfolioValues[0] * (1 + (results.benchmarkComparison.benchmarkReturn * (i / results.dates.length))) : 
         undefined
     }));
+    
+    console.log('BacktestResultsDisplay - formatted chart data sample:', chartData.slice(0, 3));
+    return chartData;
   };
 
   // Format allocation pie chart data
@@ -133,7 +172,9 @@ export function BacktestResultsDisplay({
     window.URL.revokeObjectURL(url);
   };
 
-  const totalReturnTrend = getTrendInfo(results.metrics?.totalReturn || 0);
+  // Handle both 'metrics' and 'performanceMetrics' property names
+  const metrics = results.metrics || results.performanceMetrics || {};
+  const totalReturnTrend = getTrendInfo(metrics.totalReturn || 0);
   const TotalReturnIcon = totalReturnTrend.icon;
 
   return (
@@ -146,7 +187,7 @@ export function BacktestResultsDisplay({
               <div>
                 <p className="text-sm font-medium text-gray-600">Portfolio Value</p>
                 <p className="text-2xl font-bold">
-                  ${(results.portfolioValues?.[results.portfolioValues.length - 1] || 0).toLocaleString()}
+                  ${(results.portfolioValues?.[results.portfolioValues.length - 1] || initialCapital).toLocaleString()}
                 </p>
               </div>
               <div className={`p-2 rounded-lg ${totalReturnTrend.bg}`}>
@@ -162,11 +203,11 @@ export function BacktestResultsDisplay({
               <div>
                 <p className="text-sm font-medium text-gray-600">Total Return</p>
                 <p className={`text-2xl font-bold ${totalReturnTrend.color}`}>
-                  {((results.metrics?.totalReturn || 0) * 100).toFixed(2)}%
+                  {((metrics.totalReturn || 0) * 100).toFixed(2)}%
                 </p>
               </div>
-              <Badge variant={results.metrics?.totalReturn >= 0 ? "default" : "destructive"}>
-                {results.metrics?.totalReturn >= 0 ? "Gain" : "Loss"}
+              <Badge variant={metrics.totalReturn >= 0 ? "default" : "destructive"}>
+                {metrics.totalReturn >= 0 ? "Gain" : "Loss"}
               </Badge>
             </div>
           </CardContent>
@@ -178,15 +219,15 @@ export function BacktestResultsDisplay({
               <div>
                 <p className="text-sm font-medium text-gray-600">Sharpe Ratio</p>
                 <p className="text-2xl font-bold">
-                  {(results.metrics?.sharpeRatio || 0).toFixed(2)}
+                  {(metrics.sharpeRatio || 0).toFixed(2)}
                 </p>
               </div>
               <Badge variant={
-                (results.metrics?.sharpeRatio || 0) > 1 ? "default" : 
-                (results.metrics?.sharpeRatio || 0) > 0.5 ? "secondary" : "destructive"
+                (metrics.sharpeRatio || 0) > 1 ? "default" : 
+                (metrics.sharpeRatio || 0) > 0.5 ? "secondary" : "destructive"
               }>
-                {(results.metrics?.sharpeRatio || 0) > 1 ? "Excellent" : 
-                 (results.metrics?.sharpeRatio || 0) > 0.5 ? "Good" : "Poor"}
+                {(metrics.sharpeRatio || 0) > 1 ? "Excellent" : 
+                 (metrics.sharpeRatio || 0) > 0.5 ? "Good" : "Poor"}
               </Badge>
             </div>
           </CardContent>
@@ -198,7 +239,7 @@ export function BacktestResultsDisplay({
               <div>
                 <p className="text-sm font-medium text-gray-600">Max Drawdown</p>
                 <p className="text-2xl font-bold text-red-600">
-                  {Math.abs((results.metrics?.maxDrawdown || 0) * 100).toFixed(2)}%
+                  {Math.abs((metrics.maxDrawdown || 0) * 100).toFixed(2)}%
                 </p>
               </div>
               <div className="flex items-center space-x-2">
@@ -318,6 +359,12 @@ export function BacktestResultsDisplay({
               <CardTitle>Portfolio Performance Over Time</CardTitle>
             </CardHeader>
             <CardContent>
+              {(!results?.portfolioValues || results.portfolioValues.length <= 2) && (
+                <div className="text-sm text-muted-foreground bg-blue-50 p-3 rounded-lg mb-4">
+                  <p className="font-medium">Awaiting backtest data...</p>
+                  <p className="text-xs mt-1">The chart will display portfolio performance once the backtest completes. Initial value: ${initialCapital.toLocaleString()}</p>
+                </div>
+              )}
               <div className="h-80">
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={chartData}>
@@ -335,7 +382,8 @@ export function BacktestResultsDisplay({
                     />
                     <YAxis 
                       tick={{ fontSize: 12 }}
-                      domain={['dataMin * 0.95', 'dataMax * 1.05']}
+                      domain={chartData.length > 2 ? ['dataMin * 0.95', 'dataMax * 1.05'] : [initialCapital * 0.9, initialCapital * 1.1]}
+                      tickFormatter={(value) => `$${(value / 1000).toFixed(0)}k`}
                     />
                     <Tooltip 
                       formatter={(value: any, name: string) => [
@@ -351,13 +399,14 @@ export function BacktestResultsDisplay({
                       fill="url(#colorValue)"
                     />
                     {hasBenchmarkData && showBenchmark && (
-                      <Line
+                      <Area
                         type="monotone"
                         dataKey="benchmark"
                         stroke="#ff7300"
                         strokeWidth={2}
+                        fill="none"
                         strokeDasharray="5 5"
-                        dot={false}
+                        fillOpacity={0}
                         name={actualBenchmarkSymbol}
                       />
                     )}
@@ -433,11 +482,18 @@ export function BacktestResultsDisplay({
                       <Tooltip 
                         formatter={(value: any) => [`${Number(value).toFixed(1)}%`, 'Allocation']}
                       />
-                      <RechartsPieChart data={allocationData}>
+                      <Pie 
+                        data={allocationData} 
+                        dataKey="value" 
+                        cx="50%" 
+                        cy="50%" 
+                        outerRadius={80} 
+                        label={(entry) => `${entry.name}: ${entry.value.toFixed(1)}%`}
+                      >
                         {allocationData.map((entry, index) => (
                           <Cell key={`cell-${index}`} fill={entry.color} />
                         ))}
-                      </RechartsPieChart>
+                      </Pie>
                     </RechartsPieChart>
                   </ResponsiveContainer>
                 </div>
@@ -483,7 +539,7 @@ export function BacktestResultsDisplay({
 
         <TabsContent value="metrics">
           <MetricsDisplay 
-            metrics={results.metrics}
+            metrics={metrics}
             benchmarkSymbol={actualBenchmarkSymbol}
           />
         </TabsContent>

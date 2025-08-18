@@ -81,7 +81,7 @@ const FeatureConfigSchema = z.object({
 });
 
 const BacktestConfigSchema = z.object({
-  defaultInitialCapital: z.number().min(1000).max(10000000).default(100000),
+  defaultInitialCapital: z.number().min(1000).max(10000000).default(10000),
   maxDurationYears: z.number().min(1).max(50).default(10),
   minDurationDays: z.number().min(1).max(365).default(30),
   defaultRebalancingFrequency: z.enum(['daily', 'weekly', 'monthly', 'quarterly', 'annually']).default('monthly'),
@@ -151,11 +151,14 @@ export type Config = z.infer<typeof ConfigSchema>;
  * Parse and validate environment variables
  */
 function parseEnvVar(name: string, defaultValue?: string): string {
-  const value = process.env[name] || defaultValue;
-  if (!value && !defaultValue) {
-    throw new Error(`Environment variable ${name} is required but not set`);
+  const value = process.env[name];
+  if (value !== undefined) {
+    return value;
   }
-  return value || '';
+  if (defaultValue !== undefined) {
+    return defaultValue;
+  }
+  throw new Error(`Environment variable ${name} is required but not set`);
 }
 
 function parseEnvNumber(name: string, defaultValue?: number): number {
@@ -263,7 +266,7 @@ export function loadConfig(): Config {
     },
     
     backtest: {
-      defaultInitialCapital: parseEnvNumber('DEFAULT_INITIAL_CAPITAL', 100000),
+      defaultInitialCapital: parseEnvNumber('DEFAULT_INITIAL_CAPITAL', 10000),
       maxDurationYears: parseEnvNumber('MAX_BACKTEST_DURATION_YEARS', 10),
       minDurationDays: parseEnvNumber('MIN_BACKTEST_DURATION_DAYS', 30),
       defaultRebalancingFrequency: parseEnvVar('DEFAULT_REBALANCING_FREQUENCY', 'monthly') as 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'annually',

@@ -152,7 +152,7 @@ export function PerformanceChart({
               // Use strategy-adjusted value for display
               combined[symbol] = adjustedValue
               combined[`${symbol}_weight`] = weight
-              combined[`${symbol}_invested`] = weight > 0 ? 1 : 0  // Binary indicator for momentum timing
+              combined[`${symbol}_invested`] = Number(weight) > 0 ? 1 : 0  // Binary indicator for momentum timing
               combined[`${symbol}_original`] = originalValue // For tooltip reference
             } else {
               // Regular holdings display for other strategies
@@ -345,7 +345,7 @@ export function PerformanceChart({
             stroke="#64748b"
             fontSize={getResponsiveFontSize()}
             tick={{ fontSize: getResponsiveFontSize() }}
-            interval={isMobile ? 'preserveStartEnd' : 'auto'}
+            interval={isMobile ? 'preserveStartEnd' : 0}
             tickLine={!isMobile}
             axisLine={!isMobile}
           />
@@ -366,7 +366,7 @@ export function PerformanceChart({
             }
             cursor={{ strokeWidth: isMobile ? 2 : 1 }}
             allowEscapeViewBox={{ x: true, y: true }}
-            position={isMobile ? { x: 'auto', y: 'auto' } : undefined}
+            position={undefined}
           />
           {!isMobile && <Legend />}
 

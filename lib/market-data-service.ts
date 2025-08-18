@@ -93,7 +93,9 @@ export class MarketDataService {
 
       // Try to get from FMP
       if (interval === '1d') {
-        data = await this.getFMPHistoricalData(symbol, this.getPeriodDates(period))
+        const periodDates = this.getPeriodDates(period)
+        console.log(`Market data for ${symbol}: period="${period}", dates=${periodDates.from} to ${periodDates.to}`)
+        data = await this.getFMPHistoricalData(symbol, periodDates)
       }
 
       // Fallback to database
@@ -160,6 +162,64 @@ export class MarketDataService {
     return results
   }
 
+  async getBulkHistoricalDataByDateRange(
+    symbols: string[],
+    fromDate: string,
+    toDate: string,
+    interval: string = '1d'
+  ): Promise<Record<string, MarketDataPoint[]>> {
+    const results: Record<string, MarketDataPoint[]> = {}
+    
+    // Process symbols in batches to avoid rate limits
+    const batchSize = 5
+    for (let i = 0; i < symbols.length; i += batchSize) {
+      const batch = symbols.slice(i, i + batchSize)
+      
+      // Add overall timeout for the entire batch
+      const batchTimeout = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error(`Batch timeout for symbols: ${batch.join(', ')}`)), 120000) // 2 minutes
+      })
+      
+      const batchPromises = batch.map(async (symbol) => {
+        try {
+          console.log(`Fetching ${symbol} data from ${fromDate} to ${toDate}`)
+          const data = await this.getFMPHistoricalData(symbol, { from: fromDate, to: toDate })
+          console.log(`Successfully fetched ${data.length} data points for ${symbol}`)
+          return { symbol, data }
+        } catch (error) {
+          console.error(`Failed to get data for ${symbol}:`, error)
+          return { symbol, data: [] }
+        }
+      })
+
+      try {
+        const batchResults = await Promise.race([
+          Promise.all(batchPromises),
+          batchTimeout
+        ])
+        
+        batchResults.forEach(({ symbol, data }) => {
+          results[symbol] = data
+        })
+        
+        console.log(`Completed batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(symbols.length/batchSize)}`)
+      } catch (error) {
+        console.error(`Batch failed for symbols ${batch.join(', ')}:`, error)
+        // Add empty results for failed batch symbols to prevent hanging
+        batch.forEach(symbol => {
+          results[symbol] = []
+        })
+      }
+
+      // Add delay between batches to respect rate limits
+      if (i + batchSize < symbols.length) {
+        await new Promise(resolve => setTimeout(resolve, 1000))
+      }
+    }
+
+    return results
+  }
+
   private async getFMPCurrentPrice(symbol: string): Promise<CurrentPriceData | null> {
     try {
       const url = `${this.fmpBaseUrl}/quote/${symbol}?apikey=${this.fmpApiKey}`
@@ -197,9 +257,20 @@ export class MarketDataService {
   ): Promise<MarketDataPoint[]> {
     try {
       const url = `${this.fmpBaseUrl}/historical-price-full/${symbol}?from=${from}&to=${to}&apikey=${this.fmpApiKey}`
-      const response = await fetch(url, {
-        next: { revalidate: 3600 } // Cache for 1 hour
+      
+      // Create a timeout promise
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error(`FMP API timeout for ${symbol} after 30 seconds`)), 30000)
       })
+      
+      // Race between fetch and timeout
+      const response = await Promise.race([
+        fetch(url, {
+          next: { revalidate: 3600 }, // Cache for 1 hour
+          signal: AbortSignal.timeout(25000) // Abort after 25 seconds
+        }),
+        timeoutPromise
+      ])
 
       if (!response.ok) {
         throw new Error(`FMP API error: ${response.status}`)

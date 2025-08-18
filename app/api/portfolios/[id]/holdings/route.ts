@@ -3,13 +3,12 @@ import { prisma } from '@/lib/db'
 import { holdingSchema } from '@/lib/validations'
 import { z } from 'zod'
 import { 
-  withApiHandler, 
   createApiResponse, 
   createApiError, 
   validateRequestBody,
   validateETFSymbol
 } from '@/lib/utils'
-import { requireAuth } from '@/lib/server-utils'
+import { requireAuth, withApiHandler } from '@/lib/server-utils'
 
 interface RouteParams {
   params: {
@@ -111,8 +110,7 @@ export const POST = withApiHandler(
           user: {
             select: {
               id: true,
-              firstName: true,
-              lastName: true,
+              name: true,
               email: true,
             },
           },
