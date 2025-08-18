@@ -64,13 +64,16 @@ model Portfolio {
   description String?
   isPublic    Boolean            @default(false)
   userId      String
+  templateId  String?
   createdAt   DateTime           @default(now())
   updatedAt   DateTime           @updatedAt
   backtests   Backtest[]
   user        User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  template    LazyPortfolioTemplate? @relation(fields: [templateId], references: [id])
   holdings    PortfolioHolding[]
 
   @@index([userId])
+  @@index([templateId])
 }
 
 model PortfolioHolding {
@@ -194,4 +197,58 @@ model ETFInfo {
 
   @@index([symbol])
   @@index([category])
+}
+
+model LazyPortfolioTemplate {
+  id              String                   @id @default(cuid())
+  name            String                   @unique
+  description     String?
+  creator         String?
+  category        String?
+  riskLevel       String?
+  isActive        Boolean                  @default(true)
+  createdAt       DateTime                 @default(now())
+  updatedAt       DateTime                 @updatedAt
+  holdings        LazyPortfolioHolding[]
+  metrics         LazyPortfolioMetrics?
+  portfolios      Portfolio[]
+
+  @@index([category])
+  @@index([riskLevel])
+  @@index([isActive])
+}
+
+model LazyPortfolioHolding {
+  id         String                @id @default(cuid())
+  templateId String
+  symbol     String
+  allocation Float
+  name       String?
+  assetClass String?
+  template   LazyPortfolioTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@unique([templateId, symbol])
+  @@index([templateId])
+  @@index([symbol])
+  @@index([assetClass])
+}
+
+model LazyPortfolioMetrics {
+  id                  String                @id @default(cuid())
+  templateId          String                @unique
+  totalReturn         Float?
+  annualizedReturn    Float?
+  volatility          Float?
+  sharpeRatio         Float?
+  maxDrawdown         Float?
+  calmarRatio         Float?
+  sortinoRatio        Float?
+  beta                Float?
+  alpha               Float?
+  backtestStartDate   DateTime?
+  backtestEndDate     DateTime?
+  calculatedAt        DateTime              @default(now())
+  template            LazyPortfolioTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@index([templateId])
 }

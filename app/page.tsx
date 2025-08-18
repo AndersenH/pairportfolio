@@ -17,6 +17,9 @@ import { AssetPerformanceTablePython } from '@/components/performance/asset-perf
 import { useMobileResponsive } from '@/lib/client-utils'
 import { BenchmarkSelector } from '@/components/portfolio/portfolio-form'
 import { usePortfolios, useDeletePortfolio } from '@/hooks/use-portfolios'
+import { MarketMonitor } from '@/components/market-monitor'
+import { lazyPortfolios, getPortfolioByName, getPortfolioById } from '@/lib/lazy-portfolios'
+import { useSearchParams } from 'next/navigation'
 // Simple toast replacement for now
 const useToast = () => ({
   toast: ({ title, description, variant }: { title: string; description: string; variant?: string }) => {
@@ -421,6 +424,7 @@ const AllocationTooltip = ({ active, payload }: any) => {
 
 export default function HomePage() {
   const { isMobile, isTablet, isTouch, width, height } = useMobileResponsive()
+  const searchParams = useSearchParams()
   const [portfolioItems, setPortfolioItems] = useState<PortfolioItem[]>([
     { symbol: 'VTI', name: 'Vanguard Total Stock Market', allocation: 50 },
     { symbol: 'BND', name: 'Vanguard Total Bond Market', allocation: 50 }
@@ -477,6 +481,112 @@ export default function HomePage() {
   const [isSaving, setIsSaving] = useState(false)
   const [selectedPortfolioId, setSelectedPortfolioId] = useState<string>('')
   const { toast } = useToast()
+
+  // Handle URL parameters for loading preset portfolios
+  useEffect(() => {
+    const preset = searchParams.get('preset')
+    const portfolioNameParam = searchParams.get('portfolioName')
+    
+    if (preset || portfolioNameParam) {
+      let portfolioDefinition = null
+      
+      // Try to get portfolio by ID first, then by name
+      if (preset) {
+        portfolioDefinition = getPortfolioById(preset)
+      }
+      if (!portfolioDefinition && portfolioNameParam) {
+        portfolioDefinition = getPortfolioByName(portfolioNameParam)
+      }
+      
+      if (portfolioDefinition) {
+        // Update portfolio form fields
+        setPortfolioName(portfolioDefinition.name)
+        
+        // Clear existing holdings and populate with new ones
+        const portfolioHoldings = portfolioDefinition.holdings.map(holding => ({
+          symbol: holding.symbol,
+          name: holding.name,
+          allocation: holding.allocation
+        }))
+        setPortfolioItems(portfolioHoldings)
+        
+        // Set date range to last 5 years
+        const defaultDates = getDefaultDates()
+        setStartDate(defaultDates.start)
+        setEndDate(defaultDates.end)
+        
+        // Keep other settings as they are
+        setInitialInvestment(10000)
+        setStrategy('buy-hold')
+        setBenchmarkSymbol(null)
+        
+        // Show toast notification
+        toast({
+          title: 'Portfolio Loaded',
+          description: `Loaded "${portfolioDefinition.name}" template. You can customize it before running the backtest.`,
+          variant: 'default'
+        })
+        
+        // Scroll to portfolio builder section
+        setTimeout(() => {
+          const portfolioBuilderElement = document.getElementById('portfolio-builder')
+          if (portfolioBuilderElement) {
+            portfolioBuilderElement.scrollIntoView({ 
+              behavior: 'smooth',
+              block: 'start'
+            })
+          }
+        }, 100)
+        
+        // Clear URL parameters after loading
+        window.history.replaceState({}, document.title, window.location.pathname)
+      }
+    }
+  }, [searchParams]) // Only run when searchParams change
+
+  // Handler for when a portfolio is clicked in MarketMonitor
+  const handlePortfolioClick = (portfolioName: string) => {
+    const portfolioDefinition = getPortfolioByName(portfolioName)
+    if (portfolioDefinition) {
+      // Update portfolio form fields
+      setPortfolioName(portfolioDefinition.name)
+      
+      // Clear existing holdings and populate with new ones
+      const portfolioHoldings = portfolioDefinition.holdings.map(holding => ({
+        symbol: holding.symbol,
+        name: holding.name,
+        allocation: holding.allocation
+      }))
+      setPortfolioItems(portfolioHoldings)
+      
+      // Set date range to last 5 years
+      const defaultDates = getDefaultDates()
+      setStartDate(defaultDates.start)
+      setEndDate(defaultDates.end)
+      
+      // Keep initial investment at $10,000
+      setInitialInvestment(10000)
+      
+      // Clear any existing backtest results
+      setBacktestResult(null)
+      setError(null)
+      
+      // Scroll to Portfolio Builder section smoothly
+      const portfolioBuilderElement = document.getElementById('portfolio-builder')
+      if (portfolioBuilderElement) {
+        portfolioBuilderElement.scrollIntoView({ 
+          behavior: 'smooth',
+          block: 'start'
+        })
+      }
+      
+      // Show success message
+      toast({
+        title: "Portfolio Loaded",
+        description: `${portfolioDefinition.name} has been loaded into the portfolio builder.`,
+      })
+    }
+  }
   const { data: session } = useSession()
   const { data: portfoliosData, isLoading: portfoliosLoading } = usePortfolios(1, 50)
   const deletePortfolio = useDeletePortfolio()
@@ -922,9 +1032,15 @@ export default function HomePage() {
   return (
     <>
       <div className="container mx-auto px-4 py-6 md:px-6 lg:px-8">
+        {/* Market Monitor Section */}
+        <div className="mb-8">
+          <MarketMonitor onPortfolioClick={handlePortfolioClick} />
+        </div>
+        
+        {/* Main Content Grid */}
         <div className={`grid gap-6 ${isMobile ? 'grid-cols-1' : 'grid-cols-1 lg:grid-cols-3 gap-8'}`}>
           {/* Portfolio Builder Section */}
-          <div className={`${isMobile ? 'order-1' : 'lg:col-span-1'}`}>
+          <div id="portfolio-builder" className={`${isMobile ? 'order-1' : 'lg:col-span-1'}`}>
             <Card className={`${isMobile ? 'p-4' : 'p-6'} ${isMobile ? '' : 'lg:sticky lg:top-4'}`} style={{ maxHeight: isMobile ? 'none' : '90vh', overflowY: isMobile ? 'visible' : 'auto' }}>
               <CardHeader className="px-0 pt-0">
                 <CardTitle className={`text-indigo-700 flex items-center gap-2 ${isMobile ? 'text-lg' : ''}`}>

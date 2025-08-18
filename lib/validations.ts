@@ -136,6 +136,37 @@ export const savePortfolioFromBacktestSchema = z.object({
   updateEndDateToToday: z.boolean().default(true),
 })
 
+// Create portfolio from lazy template schema
+export const createFromTemplateSchema = z.object({
+  templateId: z.string().min(1, 'Template ID is required'),
+  name: z.string().min(1, 'Portfolio name is required').max(255),
+  description: z.string().max(1000).optional(),
+  isPublic: z.boolean().default(false),
+  customizations: z.object({
+    adjustAllocations: z.boolean().default(false),
+    holdingAdjustments: z.array(
+      z.object({
+        symbol: z.string().min(1, 'Symbol is required').max(20),
+        allocation: z.number().min(0.0001, 'Allocation must be at least 0.01%').max(1, 'Allocation cannot exceed 100%'),
+      })
+    ).optional(),
+    excludeHoldings: z.array(z.string()).optional(),
+    addPrefix: z.string().max(50).optional(),
+    addSuffix: z.string().max(50).optional()
+  }).optional()
+})
+
+// Lazy portfolio query schema
+export const lazyPortfolioQuerySchema = z.object({
+  page: z.coerce.number().min(1).default(1),
+  limit: z.coerce.number().min(1).max(100).default(20),
+  category: z.string().optional(),
+  riskLevel: z.enum(['conservative', 'moderate', 'aggressive']).optional(),
+  search: z.string().optional(),
+  sortBy: z.enum(['name', 'popularity', 'risk']).default('name'),
+  sortOrder: z.enum(['asc', 'desc']).default('asc')
+})
+
 // Type exports
 export type PortfolioInput = z.infer<typeof portfolioSchema>
 export type PortfolioUpdateInput = z.infer<typeof portfolioUpdateSchema>
@@ -149,3 +180,5 @@ export type UserLogin = z.infer<typeof userLoginSchema>
 export type PaginationQuery = z.infer<typeof paginationSchema>
 export type ApiResponse = z.infer<typeof apiResponseSchema>
 export type SavePortfolioFromBacktestInput = z.infer<typeof savePortfolioFromBacktestSchema>
+export type CreateFromTemplateInput = z.infer<typeof createFromTemplateSchema>
+export type LazyPortfolioQuery = z.infer<typeof lazyPortfolioQuerySchema>

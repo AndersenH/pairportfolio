@@ -24,6 +24,9 @@ export {
 // Performance Components
 export { MetricsDisplay } from './performance/metrics-display'
 
+// Market Monitor Component
+export { MarketMonitor } from './market-monitor'
+
 // Chart Components
 export { PerformanceChart } from './charts/performance-chart'
 export { AllocationChart } from './charts/allocation-chart'

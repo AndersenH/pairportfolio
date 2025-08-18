@@ -38,6 +38,8 @@
     "db:migrate": "prisma migrate dev",
     "db:generate": "prisma generate",
     "db:studio": "prisma studio",
+    "db:seed": "node prisma/seed.js",
+    "db:setup-lazy-portfolios": "./scripts/setup-lazy-portfolios.sh",
     "config:validate": "node scripts/validate-config.js",
     "config:validate:dev": "node scripts/validate-config.js development",
     "config:validate:prod": "node scripts/validate-config.js production",
