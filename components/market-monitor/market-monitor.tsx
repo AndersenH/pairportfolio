@@ -159,12 +159,12 @@ export function MarketMonitor({ onPortfolioClick }: MarketMonitorProps = {}) {
       // Use the callback if provided
       onPortfolioClick(portfolio.name);
     } else {
-      // Navigate to the main page with portfolio preset in URL
+      // Navigate to the portfolio builder page with portfolio preset in URL
       const params = new URLSearchParams({
         preset: portfolio.id,
         portfolioName: portfolio.name
       });
-      router.push(`/?${params.toString()}`);
+      router.push(`/portfolio-builder?${params.toString()}`);
     }
   };
 
@@ -199,9 +199,14 @@ export function MarketMonitor({ onPortfolioClick }: MarketMonitorProps = {}) {
   return (
     <Card className="w-full">
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
-        <CardTitle className="text-2xl font-bold">
-          Market Monitor - Top 10 Lazy Portfolios
-        </CardTitle>
+        <div>
+          <CardTitle className="text-2xl font-bold">
+            Market Monitor - Top 10 Lazy Portfolios
+          </CardTitle>
+          <p className="text-sm text-muted-foreground mt-1">
+            Click any portfolio to open it in the Portfolio Builder
+          </p>
+        </div>
         <div className="flex items-center gap-4">
           <span className="text-sm text-muted-foreground">
             {isLoading ? 'Loading...' : 'Last updated: Today'}

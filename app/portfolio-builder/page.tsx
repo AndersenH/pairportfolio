@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input'
 import { SearchDropdown } from '@/components/ui/search-dropdown'
 import Link from 'next/link'
 import { useSession } from 'next-auth/react'
-import { TrendingUp, BarChart3, PieChart, Search, Star, Play, Trash2, Download, Share2, AlertCircle, Loader2, X, Menu, Save } from 'lucide-react'
+import { TrendingUp, BarChart3, PieChart, Search, Star, Play, Trash2, Download, Share2, AlertCircle, Loader2, X, Menu, Save, ArrowLeft } from 'lucide-react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart as RechartsPieChart, Pie, Cell, Legend } from 'recharts'
 import { PerformanceChart } from '@/components/charts/performance-chart' 
 import { AllocationChart } from '@/components/charts/allocation-chart'
@@ -17,9 +17,9 @@ import { AssetPerformanceTablePython } from '@/components/performance/asset-perf
 import { useMobileResponsive } from '@/lib/client-utils'
 import { BenchmarkSelector } from '@/components/portfolio/portfolio-form'
 import { usePortfolios, useDeletePortfolio } from '@/hooks/use-portfolios'
-import { MarketMonitor } from '@/components/market-monitor'
 import { lazyPortfolios, getPortfolioByName, getPortfolioById } from '@/lib/lazy-portfolios'
-import { useSearchParams } from 'next/navigation'
+import { useSearchParams, useRouter } from 'next/navigation'
+
 // Simple toast replacement for now
 const useToast = () => ({
   toast: ({ title, description, variant }: { title: string; description: string; variant?: string }) => {
@@ -65,7 +65,7 @@ interface BacktestResult {
   maxDrawdown?: number
   portfolioValue?: number[]
   dates?: string[]
-  holdings?: Record<string, any[]> // Holdings contains time series objects, not just numbers
+  holdings?: Record<string, any[]>
   returns?: number[]
   drawdown?: number[]
   performanceMetrics?: {
@@ -75,8 +75,8 @@ interface BacktestResult {
     sharpeRatio?: number
     maxDrawdown?: number
   }
-  assetPerformance?: AssetPerformanceMetrics[] // Pre-calculated asset performance data
-  assetPrices?: Record<string, number[]> // Individual asset price data
+  assetPerformance?: AssetPerformanceMetrics[]
+  assetPrices?: Record<string, number[]>
 }
 
 interface BacktestError {
@@ -404,7 +404,6 @@ const calculateAssetPerformanceMetrics = (
   }
 }
 
-
 // Custom tooltip for allocation chart
 const AllocationTooltip = ({ active, payload }: any) => {
   if (active && payload && payload.length) {
@@ -422,9 +421,10 @@ const AllocationTooltip = ({ active, payload }: any) => {
   return null
 }
 
-export default function HomePage() {
+export default function PortfolioBuilderPage() {
   const { isMobile, isTablet, isTouch, width, height } = useMobileResponsive()
   const searchParams = useSearchParams()
+  const router = useRouter()
   const [portfolioItems, setPortfolioItems] = useState<PortfolioItem[]>([
     { symbol: 'VTI', name: 'Vanguard Total Stock Market', allocation: 50 },
     { symbol: 'BND', name: 'Vanguard Total Bond Market', allocation: 50 }
@@ -526,36 +526,10 @@ export default function HomePage() {
           description: `Loaded "${portfolioDefinition.name}" template. You can customize it before running the backtest.`,
           variant: 'default'
         })
-        
-        // Scroll to portfolio builder section
-        setTimeout(() => {
-          const portfolioBuilderElement = document.getElementById('portfolio-builder')
-          if (portfolioBuilderElement) {
-            portfolioBuilderElement.scrollIntoView({ 
-              behavior: 'smooth',
-              block: 'start'
-            })
-          }
-        }, 100)
-        
-        // Clear URL parameters after loading
-        window.history.replaceState({}, document.title, window.location.pathname)
       }
     }
   }, [searchParams]) // Only run when searchParams change
 
-  // Handler for when a portfolio is clicked in MarketMonitor
-  const handlePortfolioClick = (portfolioName: string) => {
-    const portfolioDefinition = getPortfolioByName(portfolioName)
-    if (portfolioDefinition) {
-      // Navigate to portfolio builder page with portfolio preset in URL
-      const params = new URLSearchParams({
-        preset: portfolioDefinition.id,
-        portfolioName: portfolioDefinition.name
-      })
-      window.location.href = `/portfolio-builder?${params.toString()}`
-    }
-  }
   const { data: session } = useSession()
   const { data: portfoliosData, isLoading: portfoliosLoading } = usePortfolios(1, 50)
   const deletePortfolio = useDeletePortfolio()
@@ -969,193 +943,128 @@ export default function HomePage() {
       return []
     }
 
-    // Use pre-calculated asset performance if available (from Python backend)
+    // If we have pre-calculated asset performance from the API, use it
     if (backtestResult.assetPerformance && backtestResult.assetPerformance.length > 0) {
       return backtestResult.assetPerformance
     }
 
-    // Fallback: calculate from asset prices or holdings data
-    const dataSource = backtestResult.assetPrices || backtestResult.holdings
-    if (!dataSource) {
-      return []
+    // Otherwise calculate from asset prices
+    if (backtestResult.assetPrices) {
+      return Object.entries(backtestResult.assetPrices).map(([symbol, prices]) => {
+        return calculateAssetPerformanceMetrics(symbol, prices, backtestResult.dates!)
+      })
     }
 
-    return portfolioItems
-      .filter(item => item.allocation > 0)
-      .map(item => {
-        const assetValues = dataSource[item.symbol]
-        if (!assetValues) {
-          return {
-            symbol: item.symbol,
-            totalReturn: 0,
-            annualizedReturn: 0,
-            volatility: 0,
-            sharpeRatio: 0,
-            maxDrawdown: 0
-          }
-        }
-        return calculateAssetPerformanceMetrics(item.symbol, assetValues, backtestResult.dates!)
-      })
-  }, [backtestResult, portfolioItems])
+    return []
+  }, [backtestResult])
 
   return (
     <>
-      <div className="container mx-auto px-4 py-6 md:px-6 lg:px-8">
-        {/* Market Monitor Section */}
-        <div className="mb-8">
-          <div className="flex justify-between items-center mb-4">
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900">ETF Portfolio Analyzer</h1>
-              <p className="text-gray-600 mt-1">Explore top lazy portfolios or create your own</p>
+      {/* Header */}
+      <header className={`bg-white shadow-sm sticky top-0 z-40 ${isMobile ? 'px-4 py-3' : ''}`}>
+        <div className="container mx-auto px-4">
+          <div className="flex justify-between items-center h-16">
+            <div className="flex items-center space-x-4">
+              <Link href="/" className="flex items-center space-x-2 text-gray-700 hover:text-gray-900">
+                <ArrowLeft className="w-5 h-5" />
+                <span className={`${isMobile ? 'hidden' : ''}`}>Back to Home</span>
+              </Link>
+              <div className="text-xl font-bold text-gray-900">Portfolio Builder</div>
             </div>
-            <Link 
-              href="/portfolio-builder" 
-              className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
-            >
-              <PieChart className="w-4 h-4" />
-              Portfolio Builder
-            </Link>
+            
+            {session && (
+              <div className="flex items-center space-x-4">
+                <span className="text-sm text-gray-600">
+                  {session.user?.email}
+                </span>
+                <Button variant="ghost" size="sm" onClick={() => router.push('/api/auth/signout')}>
+                  Sign Out
+                </Button>
+              </div>
+            )}
           </div>
-          <MarketMonitor onPortfolioClick={handlePortfolioClick} />
         </div>
-        
-        {/* Main Content Grid */}
-        <div className={`grid gap-6 ${isMobile ? 'grid-cols-1' : 'grid-cols-1 lg:grid-cols-3 gap-8'}`}>
+      </header>
+
+      {/* Main Content */}
+      <div className={`container mx-auto px-4 ${isMobile ? 'py-4' : 'py-8'}`}>
+        <div className={`grid gap-8 ${isMobile ? 'grid-cols-1' : 'grid-cols-1 lg:grid-cols-3'}`}>
           {/* Portfolio Builder Section */}
-          <div id="portfolio-builder" className={`${isMobile ? 'order-1' : 'lg:col-span-1'}`}>
-            <Card className={`${isMobile ? 'p-4' : 'p-6'} ${isMobile ? '' : 'lg:sticky lg:top-4'}`} style={{ maxHeight: isMobile ? 'none' : '90vh', overflowY: isMobile ? 'visible' : 'auto' }}>
+          <div className={`${isMobile ? 'order-1' : 'lg:col-span-1'}`}>
+            <Card id="portfolio-builder" className={isMobile ? 'p-4' : 'p-6'}>
               <CardHeader className="px-0 pt-0">
-                <CardTitle className={`text-indigo-700 flex items-center gap-2 ${isMobile ? 'text-lg' : ''}`}>
-                  <PieChart className={`${isMobile ? 'w-4 h-4' : 'w-5 h-5'}`} />
-                  Portfolio Builder
+                <CardTitle className={`text-indigo-700 ${isMobile ? 'text-lg' : ''}`}>
+                  Build Your Portfolio
                 </CardTitle>
+                <CardDescription className={isMobile ? 'text-sm' : ''}>
+                  Create a diversified ETF portfolio and test its historical performance
+                </CardDescription>
               </CardHeader>
-              <CardContent className={`px-0 ${isMobile ? 'space-y-4' : 'space-y-6'}`}>
+              <CardContent className={`px-0 space-y-6 ${isMobile ? 'space-y-4' : ''}`}>
                 {/* Portfolio Name */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2 pt-1">Portfolio Name</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Portfolio Name
+                  </label>
                   <Input 
                     value={portfolioName}
                     onChange={(e) => setPortfolioName(e.target.value)}
                     placeholder="My ETF Portfolio"
+                    className={isTouch ? 'min-h-[44px] touch-manipulation' : ''}
                   />
+                </div>
+
+                {/* Date Range */}
+                <div className={`grid gap-4 ${isMobile ? 'grid-cols-1' : 'grid-cols-2'}`}>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Start Date
+                    </label>
+                    <Input 
+                      type="date"
+                      value={startDate}
+                      onChange={(e) => setStartDate(e.target.value)}
+                      className={isTouch ? 'min-h-[44px] touch-manipulation' : ''}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      End Date
+                    </label>
+                    <Input 
+                      type="date"
+                      value={endDate}
+                      onChange={(e) => setEndDate(e.target.value)}
+                      className={isTouch ? 'min-h-[44px] touch-manipulation' : ''}
+                    />
+                  </div>
                 </div>
 
                 {/* Initial Investment */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2 pt-1">Initial Investment ($)</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Initial Investment
+                  </label>
                   <Input 
                     type="number"
                     value={initialInvestment}
                     onChange={(e) => setInitialInvestment(Number(e.target.value))}
-                    min={100}
-                  />
-                </div>
-                
-                {/* Saved Portfolio Selection */}
-                {session && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2 pt-1">Load Saved Portfolio (Optional)</label>
-                    <div className="flex gap-2">
-                      <div className="relative flex-1">
-                        <select
-                          value={selectedPortfolioId}
-                          onChange={(e) => {
-                            if (e.target.value) {
-                              handleLoadPortfolio(e.target.value)
-                            }
-                          }}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white text-gray-900"
-                          disabled={portfoliosLoading}
-                        >
-                          <option value="">Select a saved portfolio...</option>
-                          {portfoliosData?.data?.map((portfolio) => (
-                            <option key={portfolio.id} value={portfolio.id}>
-                              {portfolio.name} ({portfolio.holdings.length} holdings)
-                            </option>
-                          ))}
-                        </select>
-                        {portfoliosLoading && (
-                          <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
-                            <Loader2 className="w-4 h-4 animate-spin text-gray-400" />
-                          </div>
-                        )}
-                      </div>
-                      {selectedPortfolioId && (
-                        <div className="flex gap-1">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={() => {
-                              setSelectedPortfolioId('')
-                              toast({
-                                title: "Portfolio Cleared",
-                                description: "Portfolio selection cleared. Continue editing manually.",
-                              })
-                            }}
-                            className="px-3 py-2 flex-shrink-0"
-                            title="Clear selection"
-                          >
-                            <X className="w-4 h-4" />
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleDeletePortfolio(selectedPortfolioId)}
-                            className="px-3 py-2 flex-shrink-0 text-destructive hover:text-destructive"
-                            title="Delete portfolio"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
-                        </div>
-                      )}
-                    </div>
-                    <p className="text-xs text-gray-500 mt-1">
-                      Select a saved portfolio to load its holdings, or continue building manually below
-                    </p>
-                  </div>
-                )}
-
-                {/* Date Range */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2 pt-1">Date Range</label>
-                  <div className={`${isMobile ? 'space-y-2' : 'flex space-x-2'}`}>
-                    <Input 
-                      type="date" 
-                      value={startDate}
-                      onChange={(e) => setStartDate(e.target.value)}
-                      className={isMobile ? 'w-full' : ''}
-                    />
-                    <span className={`flex items-center text-sm text-gray-500 ${isMobile ? 'justify-center py-1' : ''}`}>to</span>
-                    <Input 
-                      type="date" 
-                      value={endDate}
-                      onChange={(e) => setEndDate(e.target.value)}  
-                      className={isMobile ? 'w-full' : ''}
-                    />
-                  </div>
-                </div>
-
-                {/* Benchmark Selection */}
-                <div>
-                  <BenchmarkSelector
-                    value={benchmarkSymbol}
-                    onValueChange={setBenchmarkSymbol}
+                    placeholder="10000"
+                    min={1}
+                    step={1000}
+                    className={isTouch ? 'min-h-[44px] touch-manipulation' : ''}
                   />
                 </div>
 
-                {/* Strategy Type */}
-                <div className="p-4 bg-indigo-50 rounded-lg border-2 border-indigo-200">
-                  <label className="block text-sm font-medium text-indigo-700 mb-2 flex items-center gap-2">
-                    <BarChart3 className="w-4 h-4" />
-                    Strategy Type
+                {/* Strategy Selection */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Strategy
                   </label>
-                  <select 
-                    className="w-full px-3 py-2 border border-indigo-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+                  <select
                     value={strategy}
                     onChange={(e) => setStrategy(e.target.value)}
+                    className={`w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 ${isTouch ? 'min-h-[44px] touch-manipulation' : ''}`}
                   >
                     <option value="buy-hold">Buy & Hold</option>
                     <option value="momentum">Momentum</option>
@@ -1165,326 +1074,119 @@ export default function HomePage() {
                   </select>
                 </div>
 
+                {/* Benchmark Selection */}
+                <BenchmarkSelector
+                  value={benchmarkSymbol}
+                  onValueChange={setBenchmarkSymbol}
+                />
+
                 {/* Strategy Parameters */}
-                {strategy !== 'buy-hold' && (
-                  <div className="p-4 bg-gray-50 rounded-lg border-2 border-gray-200">
-                    <label className="block text-sm font-medium text-gray-700 mb-3 flex items-center gap-2">
-                      <TrendingUp className="w-4 h-4" />
-                      Strategy Parameters
+                {strategy === 'momentum' && (
+                  <div className="space-y-4 p-4 bg-gray-50 rounded-lg">
+                    <h4 className="text-sm font-medium text-gray-700">Momentum Parameters</h4>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs text-gray-600 mb-1">Lookback Period</label>
+                        <Input
+                          type="number"
+                          value={strategyParameters.momentum.lookbackPeriod}
+                          onChange={(e) => setStrategyParameters(prev => ({
+                            ...prev,
+                            momentum: { ...prev.momentum, lookbackPeriod: Number(e.target.value) }
+                          }))}
+                          min={1}
+                          max={12}
+                          className="h-8"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-600 mb-1">Top N Assets</label>
+                        <Input
+                          type="number"
+                          value={strategyParameters.momentum.topN}
+                          onChange={(e) => setStrategyParameters(prev => ({
+                            ...prev,
+                            momentum: { ...prev.momentum, topN: Number(e.target.value) }
+                          }))}
+                          min={1}
+                          max={portfolioItems.length || 1}
+                          className="h-8"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-600 mb-1">Rebalance Frequency</label>
+                      <select
+                        value={strategyParameters.momentum.rebalanceFrequency}
+                        onChange={(e) => setStrategyParameters(prev => ({
+                          ...prev,
+                          momentum: { ...prev.momentum, rebalanceFrequency: e.target.value }
+                        }))}
+                        className="w-full h-8 px-2 border border-gray-300 rounded-md text-sm"
+                      >
+                        <option value="weekly">Weekly</option>
+                        <option value="monthly">Monthly</option>
+                        <option value="quarterly">Quarterly</option>
+                      </select>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="checkbox"
+                        id="positiveReturnsOnly"
+                        checked={strategyParameters.momentum.positiveReturnsOnly}
+                        onChange={(e) => setStrategyParameters(prev => ({
+                          ...prev,
+                          momentum: { ...prev.momentum, positiveReturnsOnly: e.target.checked }
+                        }))}
+                        className="w-4 h-4"
+                      />
+                      <label htmlFor="positiveReturnsOnly" className="text-xs text-gray-600">
+                        Only invest in assets with positive returns
+                      </label>
+                    </div>
+                    <div className="text-xs text-gray-500 italic">
+                      Momentum strategy: Invest in top {strategyParameters.momentum.topN} assets based on {strategyParameters.momentum.lookbackPeriod}-month returns, rebalancing {strategyParameters.momentum.rebalanceFrequency}.
+                      {strategyParameters.momentum.positiveReturnsOnly && " Cash is held when assets have negative returns."}
+                    </div>
+                  </div>
+                )}
+
+                {/* Saved Portfolios Dropdown */}
+                {session && portfoliosData && portfoliosData.data.length > 0 && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Load Saved Portfolio
                     </label>
-                    
-                    {strategy === 'momentum' && (
-                      <div className="space-y-4">
-                        <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">
-                            Lookback Period (months)
-                          </label>
-                          <input
-                            type="range"
-                            min="1"
-                            max="12"
-                            value={strategyParameters.momentum.lookbackPeriod}
-                            onChange={(e) => setStrategyParameters(prev => ({
-                              ...prev,
-                              momentum: { ...prev.momentum, lookbackPeriod: parseInt(e.target.value) }
-                            }))}
-                            className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
-                          />
-                          <div className="flex justify-between text-xs text-gray-500 mt-1">
-                            <span>1</span>
-                            <span className="font-medium text-indigo-600">
-                              {strategyParameters.momentum.lookbackPeriod} months
-                            </span>
-                            <span>12</span>
-                          </div>
-                        </div>
-                        
-                        <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">
-                            Rebalance Frequency
-                          </label>
-                          <select
-                            value={strategyParameters.momentum.rebalanceFrequency}
-                            onChange={(e) => setStrategyParameters(prev => ({
-                              ...prev,
-                              momentum: { ...prev.momentum, rebalanceFrequency: e.target.value as 'weekly' | 'monthly' | 'quarterly' }
-                            }))}
-                            className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                          >
-                            <option value="weekly">Weekly</option>
-                            <option value="monthly">Monthly</option>
-                            <option value="quarterly">Quarterly</option>
-                          </select>
-                        </div>
-                        
-                        <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">
-                            Top N Holdings
-                          </label>
-                          <input
-                            type="range"
-                            min="1"
-                            max="10"
-                            value={strategyParameters.momentum.topN}
-                            onChange={(e) => setStrategyParameters(prev => ({
-                              ...prev,
-                              momentum: { ...prev.momentum, topN: parseInt(e.target.value) }
-                            }))}
-                            className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
-                          />
-                          <div className="flex justify-between text-xs text-gray-500 mt-1">
-                            <span>1</span>
-                            <span className="font-medium text-indigo-600">
-                              {strategyParameters.momentum.topN} assets
-                            </span>
-                            <span>10</span>
-                          </div>
-                        </div>
-                        
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="checkbox"
-                            id="momentum-positive-returns"
-                            checked={strategyParameters.momentum.positiveReturnsOnly}
-                            onChange={(e) => setStrategyParameters(prev => ({
-                              ...prev,
-                              momentum: { ...prev.momentum, positiveReturnsOnly: e.target.checked }
-                            }))}
-                            className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
-                          />
-                          <label htmlFor="momentum-positive-returns" className="text-xs text-gray-700">
-                            Only invest in assets with positive returns
-                          </label>
-                        </div>
-                      </div>
-                    )}
-
-                    {strategy === 'relative-strength' && (
-                      <div className="space-y-4">
-                        <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">
-                            Lookback Period (months)
-                          </label>
-                          <input
-                            type="range"
-                            min="1"
-                            max="12"
-                            value={strategyParameters['relative-strength'].lookbackPeriod}
-                            onChange={(e) => setStrategyParameters(prev => ({
-                              ...prev,
-                              'relative-strength': { ...prev['relative-strength'], lookbackPeriod: parseInt(e.target.value) }
-                            }))}
-                            className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
-                          />
-                          <div className="flex justify-between text-xs text-gray-500 mt-1">
-                            <span>1</span>
-                            <span className="font-medium text-indigo-600">
-                              {strategyParameters['relative-strength'].lookbackPeriod} months
-                            </span>
-                            <span>12</span>
-                          </div>
-                        </div>
-                        
-                        <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">
-                            Rebalance Frequency
-                          </label>
-                          <select
-                            value={strategyParameters['relative-strength'].rebalanceFrequency}
-                            onChange={(e) => setStrategyParameters(prev => ({
-                              ...prev,
-                              'relative-strength': { ...prev['relative-strength'], rebalanceFrequency: e.target.value as 'weekly' | 'monthly' | 'quarterly' }
-                            }))}
-                            className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                          >
-                            <option value="weekly">Weekly</option>
-                            <option value="monthly">Monthly</option>
-                            <option value="quarterly">Quarterly</option>
-                          </select>
-                        </div>
-                        
-                        <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">
-                            Top N Holdings
-                          </label>
-                          <input
-                            type="range"
-                            min="1"
-                            max="5"
-                            value={strategyParameters['relative-strength'].topN}
-                            onChange={(e) => setStrategyParameters(prev => ({
-                              ...prev,
-                              'relative-strength': { ...prev['relative-strength'], topN: parseInt(e.target.value) }
-                            }))}
-                            className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
-                          />
-                          <div className="flex justify-between text-xs text-gray-500 mt-1">
-                            <span>1</span>
-                            <span className="font-medium text-indigo-600">
-                              {strategyParameters['relative-strength'].topN} assets
-                            </span>
-                            <span>5</span>
-                          </div>
-                        </div>
-                        
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="checkbox"
-                            id="relative-strength-positive-returns"
-                            checked={strategyParameters['relative-strength'].positiveReturnsOnly}
-                            onChange={(e) => setStrategyParameters(prev => ({
-                              ...prev,
-                              'relative-strength': { ...prev['relative-strength'], positiveReturnsOnly: e.target.checked }
-                            }))}
-                            className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
-                          />
-                          <label htmlFor="relative-strength-positive-returns" className="text-xs text-gray-700">
-                            Only invest in assets with positive returns
-                          </label>
-                        </div>
-                      </div>
-                    )}
-
-                    {strategy === 'mean-reversion' && (
-                      <div className="space-y-4">
-                        <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">
-                            Lookback Period (months)
-                          </label>
-                          <input
-                            type="range"
-                            min="1"
-                            max="6"
-                            value={strategyParameters['mean-reversion'].lookbackPeriod}
-                            onChange={(e) => setStrategyParameters(prev => ({
-                              ...prev,
-                              'mean-reversion': { ...prev['mean-reversion'], lookbackPeriod: parseInt(e.target.value) }
-                            }))}
-                            className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
-                          />
-                          <div className="flex justify-between text-xs text-gray-500 mt-1">
-                            <span>1</span>
-                            <span className="font-medium text-indigo-600">
-                              {strategyParameters['mean-reversion'].lookbackPeriod} months
-                            </span>
-                            <span>6</span>
-                          </div>
-                        </div>
-                        
-                        <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">
-                            Rebalance Frequency
-                          </label>
-                          <select
-                            value={strategyParameters['mean-reversion'].rebalanceFrequency}
-                            onChange={(e) => setStrategyParameters(prev => ({
-                              ...prev,
-                              'mean-reversion': { ...prev['mean-reversion'], rebalanceFrequency: e.target.value as 'weekly' | 'monthly' | 'quarterly' }
-                            }))}
-                            className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                          >
-                            <option value="weekly">Weekly</option>
-                            <option value="monthly">Monthly</option>
-                            <option value="quarterly">Quarterly</option>
-                          </select>
-                        </div>
-                        
-                        <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">
-                            Z-Score Threshold
-                          </label>
-                          <input
-                            type="range"
-                            min="0.5"
-                            max="3.0"
-                            step="0.1"
-                            value={strategyParameters['mean-reversion'].zScoreThreshold}
-                            onChange={(e) => setStrategyParameters(prev => ({
-                              ...prev,
-                              'mean-reversion': { ...prev['mean-reversion'], zScoreThreshold: parseFloat(e.target.value) }
-                            }))}
-                            className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
-                          />
-                          <div className="flex justify-between text-xs text-gray-500 mt-1">
-                            <span>0.5</span>
-                            <span className="font-medium text-indigo-600">
-                              {strategyParameters['mean-reversion'].zScoreThreshold.toFixed(1)}σ
-                            </span>
-                            <span>3.0</span>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {strategy === 'risk-parity' && (
-                      <div className="space-y-4">
-                        <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">
-                            Lookback Period (months)
-                          </label>
-                          <input
-                            type="range"
-                            min="3"
-                            max="12"
-                            value={strategyParameters['risk-parity'].lookbackPeriod}
-                            onChange={(e) => setStrategyParameters(prev => ({
-                              ...prev,
-                              'risk-parity': { ...prev['risk-parity'], lookbackPeriod: parseInt(e.target.value) }
-                            }))}
-                            className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
-                          />
-                          <div className="flex justify-between text-xs text-gray-500 mt-1">
-                            <span>3</span>
-                            <span className="font-medium text-indigo-600">
-                              {strategyParameters['risk-parity'].lookbackPeriod} months
-                            </span>
-                            <span>12</span>
-                          </div>
-                        </div>
-                        
-                        <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">
-                            Rebalance Frequency
-                          </label>
-                          <select
-                            value={strategyParameters['risk-parity'].rebalanceFrequency}
-                            onChange={(e) => setStrategyParameters(prev => ({
-                              ...prev,
-                              'risk-parity': { ...prev['risk-parity'], rebalanceFrequency: e.target.value as 'weekly' | 'monthly' | 'quarterly' }
-                            }))}
-                            className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                          >
-                            <option value="weekly">Weekly</option>
-                            <option value="monthly">Monthly</option>
-                            <option value="quarterly">Quarterly</option>
-                          </select>
-                        </div>
-                        
-                        <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">
-                            Target Volatility (%)
-                          </label>
-                          <input
-                            type="range"
-                            min="5"
-                            max="20"
-                            value={strategyParameters['risk-parity'].targetVolatility}
-                            onChange={(e) => setStrategyParameters(prev => ({
-                              ...prev,
-                              'risk-parity': { ...prev['risk-parity'], targetVolatility: parseInt(e.target.value) }
-                            }))}
-                            className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
-                          />
-                          <div className="flex justify-between text-xs text-gray-500 mt-1">
-                            <span>5%</span>
-                            <span className="font-medium text-indigo-600">
-                              {strategyParameters['risk-parity'].targetVolatility}%
-                            </span>
-                            <span>20%</span>
-                          </div>
-                        </div>
-                      </div>
-                    )}
+                    <div className="space-y-2">
+                      <select
+                        value={selectedPortfolioId}
+                        onChange={(e) => {
+                          const portfolioId = e.target.value
+                          if (portfolioId) {
+                            handleLoadPortfolio(portfolioId)
+                          }
+                        }}
+                        className={`w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 ${isTouch ? 'min-h-[44px] touch-manipulation' : ''}`}
+                      >
+                        <option value="">Select a saved portfolio...</option>
+                        {portfoliosData.data.map((portfolio) => (
+                          <option key={portfolio.id} value={portfolio.id}>
+                            {portfolio.name} ({portfolio.holdings.length} holdings)
+                          </option>
+                        ))}
+                      </select>
+                      {selectedPortfolioId && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleDeletePortfolio(selectedPortfolioId)}
+                          className="w-full text-red-600 hover:text-red-700 hover:bg-red-50"
+                        >
+                          <Trash2 className="w-4 h-4 mr-2" />
+                          Delete Selected Portfolio
+                        </Button>
+                      )}
+                    </div>
                   </div>
                 )}
 
@@ -1919,157 +1621,9 @@ export default function HomePage() {
                 usePython={true}
               />
             )}
-
-            {/* Features */}
-            <Card className={isMobile ? 'p-4' : 'p-6'}>
-              <CardHeader className="px-0 pt-0">
-                <CardTitle className={`text-gray-900 ${isMobile ? 'text-lg' : ''}`}>Platform Features</CardTitle>
-              </CardHeader>
-              <CardContent className="px-0">
-                <div className={`grid gap-4 ${isMobile ? 'grid-cols-1' : 'grid-cols-1 md:grid-cols-2'}`}>
-                  <ul className={`space-y-3 ${isMobile ? 'space-y-2' : ''}`}>
-                    <li className={`flex items-center gap-3 ${isMobile ? 'text-sm' : ''}`}>
-                      <div className={`${isMobile ? 'w-1.5 h-1.5' : 'w-2 h-2'} bg-indigo-500 rounded-full flex-shrink-0`}></div>
-                      <span>Real market data integration</span>
-                    </li>
-                    <li className={`flex items-center gap-3 ${isMobile ? 'text-sm' : ''}`}>
-                      <div className={`${isMobile ? 'w-1.5 h-1.5' : 'w-2 h-2'} bg-indigo-500 rounded-full flex-shrink-0`}></div>
-                      <span>Multiple backtesting strategies</span>
-                    </li>
-                    <li className={`flex items-center gap-3 ${isMobile ? 'text-sm' : ''}`}>
-                      <div className={`${isMobile ? 'w-1.5 h-1.5' : 'w-2 h-2'} bg-indigo-500 rounded-full flex-shrink-0`}></div>
-                      <span>Comprehensive performance metrics</span>
-                    </li>
-                  </ul>
-                  {!isMobile && (
-                    <ul className="space-y-3">
-                      <li className="flex items-center gap-3">
-                        <div className="w-2 h-2 bg-indigo-500 rounded-full flex-shrink-0"></div>
-                        <span>Interactive charts and visualizations</span>
-                      </li>
-                      <li className="flex items-center gap-3">
-                        <div className="w-2 h-2 bg-indigo-500 rounded-full flex-shrink-0"></div>
-                        <span>Portfolio risk analysis</span>
-                      </li>
-                      <li className="flex items-center gap-3">
-                        <div className="w-2 h-2 bg-indigo-500 rounded-full flex-shrink-0"></div>
-                        <span>Export and sharing capabilities</span>
-                      </li>
-                    </ul>
-                  )}
-                  {isMobile && (
-                    <ul className="space-y-2">
-                      <li className="flex items-center gap-3 text-sm">
-                        <div className="w-1.5 h-1.5 bg-indigo-500 rounded-full flex-shrink-0"></div>
-                        <span>Interactive mobile-optimized charts</span>
-                      </li>
-                      <li className="flex items-center gap-3 text-sm">
-                        <div className="w-1.5 h-1.5 bg-indigo-500 rounded-full flex-shrink-0"></div>
-                        <span>Touch-friendly interface</span>
-                      </li>
-                      <li className="flex items-center gap-3 text-sm">
-                        <div className="w-1.5 h-1.5 bg-indigo-500 rounded-full flex-shrink-0"></div>
-                        <span>Export and sharing capabilities</span>
-                      </li>
-                    </ul>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
           </div>
         </div>
       </div>
-
-      {/* Footer */}
-      <footer className={`bg-gray-800 text-white ${isMobile ? 'py-6 mt-8' : 'py-8 mt-16'}`}>
-        <div className="container mx-auto px-4">
-          <div className={`grid gap-8 ${isMobile ? 'grid-cols-1 gap-6' : 'grid-cols-1 md:grid-cols-4'}`}>
-            <div className={isMobile ? 'text-center' : ''}>
-              <h3 className={`${isMobile ? 'text-lg' : 'text-lg'} font-semibold mb-4`}>ETF Replay</h3>
-              <p className={`text-gray-400 ${isMobile ? 'text-sm' : ''}`}>
-                Empowering investors with powerful backtesting tools to make informed decisions.
-              </p>
-            </div>
-            
-            {isMobile ? (
-              // Mobile simplified footer
-              <div className="grid grid-cols-2 gap-6">
-                <div>
-                  <h3 className="text-base font-semibold mb-3">Quick Links</h3>
-                  <ul className="space-y-2">
-                    <li><Link href="#" className="text-gray-400 hover:text-white transition text-sm">Documentation</Link></li>
-                    <li><Link href="#" className="text-gray-400 hover:text-white transition text-sm">Terms</Link></li>
-                    <li><Link href="#" className="text-gray-400 hover:text-white transition text-sm">Privacy</Link></li>
-                  </ul>
-                </div>
-                <div>
-                  <h3 className="text-base font-semibold mb-3">Connect</h3>
-                  <div className="flex space-x-4">
-                    <Link 
-                      href="#" 
-                      className="text-gray-400 hover:text-white transition p-2 min-h-[44px] min-w-[44px] flex items-center justify-center touch-manipulation"
-                      aria-label="Twitter"
-                    >
-                      <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M24 4.557c-.883.392-1.832.656-2.828.775 1.017-.609 1.798-1.574 2.165-2.724-.951.564-2.005.974-3.127 1.195-.897-.957-2.178-1.555-3.594-1.555-3.179 0-5.515 2.966-4.797 6.045-4.091-.205-7.719-2.165-10.148-5.144-1.29 2.213-.669 5.108 1.523 6.574-.806-.026-1.566-.247-2.229-.616-.054 2.281 1.581 4.415 3.949 4.89-.693.188-1.452.232-2.224.084.626 1.956 2.444 3.379 4.6 3.419-2.07 1.623-4.678 2.348-7.29 2.04 2.179 1.397 4.768 2.212 7.548 2.212 9.142 0 14.307-7.721 13.995-14.646.962-.695 1.797-1.562 2.457-2.549z"/></svg>
-                    </Link>
-                    <Link 
-                      href="#" 
-                      className="text-gray-400 hover:text-white transition p-2 min-h-[44px] min-w-[44px] flex items-center justify-center touch-manipulation"
-                      aria-label="LinkedIn"
-                    >
-                      <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>
-                    </Link>
-                    <Link 
-                      href="#" 
-                      className="text-gray-400 hover:text-white transition p-2 min-h-[44px] min-w-[44px] flex items-center justify-center touch-manipulation"
-                      aria-label="GitHub"
-                    >
-                      <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
-                    </Link>
-                  </div>
-                </div>
-              </div>
-            ) : (
-              // Desktop full footer
-              <>
-                <div>
-                  <h3 className="text-lg font-semibold mb-4">Resources</h3>
-                  <ul className="space-y-2">
-                    <li><Link href="#" className="text-gray-400 hover:text-white transition">Documentation</Link></li>
-                    <li><Link href="#" className="text-gray-400 hover:text-white transition">API</Link></li>
-                    <li><Link href="#" className="text-gray-400 hover:text-white transition">Tutorials</Link></li>
-                  </ul>
-                </div>
-                <div>
-                  <h3 className="text-lg font-semibold mb-4">Legal</h3>
-                  <ul className="space-y-2">
-                    <li><Link href="#" className="text-gray-400 hover:text-white transition">Terms of Service</Link></li>
-                    <li><Link href="#" className="text-gray-400 hover:text-white transition">Privacy Policy</Link></li>
-                    <li><Link href="#" className="text-gray-400 hover:text-white transition">Disclaimer</Link></li>
-                  </ul>
-                </div>
-                <div>
-                  <h3 className="text-lg font-semibold mb-4">Connect</h3>
-                  <div className="flex space-x-4">
-                    <Link href="#" className="text-gray-400 hover:text-white transition">
-                      <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M24 4.557c-.883.392-1.832.656-2.828.775 1.017-.609 1.798-1.574 2.165-2.724-.951.564-2.005.974-3.127 1.195-.897-.957-2.178-1.555-3.594-1.555-3.179 0-5.515 2.966-4.797 6.045-4.091-.205-7.719-2.165-10.148-5.144-1.29 2.213-.669 5.108 1.523 6.574-.806-.026-1.566-.247-2.229-.616-.054 2.281 1.581 4.415 3.949 4.89-.693.188-1.452.232-2.224.084.626 1.956 2.444 3.379 4.6 3.419-2.07 1.623-4.678 2.348-7.29 2.04 2.179 1.397 4.768 2.212 7.548 2.212 9.142 0 14.307-7.721 13.995-14.646.962-.695 1.797-1.562 2.457-2.549z"/></svg>
-                    </Link>
-                    <Link href="#" className="text-gray-400 hover:text-white transition">
-                      <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>
-                    </Link>
-                    <Link href="#" className="text-gray-400 hover:text-white transition">
-                      <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
-                    </Link>
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
-          <div className={`border-t border-gray-700 mt-8 pt-8 text-center text-gray-400 ${isMobile ? 'mt-6 pt-6' : ''}`}>
-            <p className={isMobile ? 'text-sm' : ''}>© 2024 ETF Replay. All rights reserved.</p>
-          </div>
-        </div>
-      </footer>
     </>
   )
 }
