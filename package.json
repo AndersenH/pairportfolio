@@ -51,7 +51,16 @@
     "ensure-running": "lsof -i:3001 || PORT=3001 npm run dev",
     "db:check-stuck": "npx tsx scripts/check-stuck-backtests.ts",
     "db:check-stuck:reset": "npx tsx scripts/check-stuck-backtests.ts --reset",
-    "db:check-stuck:fix": "npx tsx scripts/check-stuck-backtests.ts --reset --execute"
+    "db:check-stuck:fix": "npx tsx scripts/check-stuck-backtests.ts --reset --execute",
+    "docker:setup": "./scripts/docker/setup.sh",
+    "docker:start": "./scripts/docker/dev.sh start",
+    "docker:stop": "./scripts/docker/dev.sh stop",
+    "docker:restart": "./scripts/docker/dev.sh restart",
+    "docker:logs": "./scripts/docker/dev.sh logs",
+    "docker:shell": "./scripts/docker/dev.sh shell",
+    "docker:db-shell": "./scripts/docker/dev.sh db-shell",
+    "docker:cleanup": "./scripts/docker/cleanup.sh",
+    "docker:dev": "./scripts/docker/dev.sh"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.0",
@@ -66,8 +75,6 @@
     "@radix-ui/react-slot": "^1.1.0",
     "@radix-ui/react-tabs": "^1.1.12",
     "@radix-ui/react-toast": "^1.2.1",
-    "@supabase/ssr": "^0.6.1",
-    "@supabase/supabase-js": "^2.54.0",
     "@tailwindcss/forms": "^0.5.7",
     "@tailwindcss/typography": "^0.5.13",
     "@tanstack/react-query": "^5.51.1",

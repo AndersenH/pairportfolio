@@ -1,21 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { getServerSession } from 'next-auth/next';
+import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { createApiError } from '@/lib/utils';
 
 // Server-only authentication middleware
 export async function requireAuth(request: NextRequest) {
-  const supabase = await createClient()
+  const session = await getServerSession(authOptions)
   
-  const { data: { user }, error } = await supabase.auth.getUser()
-  
-  if (error) {
-    console.error('Auth error:', error)
+  if (!session || !session.user) {
+    console.error('No session found')
     throw new Error('Unauthorized')
   }
   
-  if (!user) {
-    console.error('No user found in session')
+  const user = session.user
+  
+  if (!user.email || !user.id) {
+    console.error('Invalid user data in session')
     throw new Error('Unauthorized')
   }
   
@@ -24,8 +25,8 @@ export async function requireAuth(request: NextRequest) {
   // Ensure user exists in our database
   const dbUser = await ensureUserExists({
     id: user.id,
-    email: user.email!,
-    name: user.user_metadata?.name || user.email?.split('@')[0] || 'User'
+    email: user.email,
+    name: user.name || user.email?.split('@')[0] || 'User'
   })
   
   return dbUser

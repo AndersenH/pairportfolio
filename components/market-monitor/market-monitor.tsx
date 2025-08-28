@@ -154,17 +154,67 @@ export function MarketMonitor({ onPortfolioClick }: MarketMonitorProps = {}) {
   };
 
   // Handle portfolio row click
-  const handlePortfolioRowClick = (portfolio: LazyPortfolio) => {
+  const handlePortfolioRowClick = async (portfolio: LazyPortfolio) => {
     if (onPortfolioClick) {
       // Use the callback if provided
       onPortfolioClick(portfolio.name);
-    } else {
-      // Navigate to the portfolio builder page with portfolio preset in URL
-      const params = new URLSearchParams({
-        preset: portfolio.id,
-        portfolioName: portfolio.name
+      return;
+    }
+
+    // Navigate to portfolio builder first
+    const params = new URLSearchParams({
+      preset: portfolio.id,
+      portfolioName: portfolio.name,
+    });
+    router.push(`/portfolio-builder?${params.toString()}`);
+
+    // Trigger backtest immediately
+    try {
+      // Calculate default dates: 5-year window ending today
+      const today = new Date();
+      const fiveYearsAgo = new Date(today);
+      fiveYearsAgo.setFullYear(today.getFullYear() - 5);
+      
+      const backtestData = {
+        name: portfolio.name,
+        holdings: portfolio.holdings.map(holding => ({
+          symbol: holding.symbol,
+          allocation: holding.allocation / 100,
+        })),
+        startDate: fiveYearsAgo.toISOString().split('T')[0],
+        endDate: today.toISOString().split('T')[0],
+        initialCapital: 10000,
+        strategy: 'buy-hold',
+        benchmarkSymbol: null,
+      };
+
+      // Try demo-backtest first, then fallback to simple-backtest
+      let response = await fetch('/api/demo-backtest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(backtestData),
       });
-      router.push(`/portfolio-builder?${params.toString()}`);
+
+      if (!response.ok) {
+        response = await fetch('/api/simple-backtest', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(backtestData),
+        });
+      }
+
+      if (response.ok) {
+        const result = await response.json();
+        console.log('Backtest completed for', portfolio.name, result);
+        
+        // Store the result in sessionStorage so Portfolio Builder can access it
+        sessionStorage.setItem('pendingBacktestResult', JSON.stringify(result.data));
+        console.log('Stored backtest result in sessionStorage for', portfolio.name);
+      } else {
+        console.error('Backtest failed for', portfolio.name);
+      }
+    } catch (error) {
+      console.error('Error running backtest:', error);
     }
   };
 
@@ -204,7 +254,7 @@ export function MarketMonitor({ onPortfolioClick }: MarketMonitorProps = {}) {
             Market Monitor - Top 10 Lazy Portfolios
           </CardTitle>
           <p className="text-sm text-muted-foreground mt-1">
-            Click any portfolio to open it in the Portfolio Builder
+            Click any portfolio to view its detailed statistics and backtest results
           </p>
         </div>
         <div className="flex items-center gap-4">

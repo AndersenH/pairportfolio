@@ -1,0 +1,120 @@
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: pairportfolio-postgres
+    environment:
+      POSTGRES_DB: pairportfolio
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres123
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - pairportfolio-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d pairportfolio"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: pairportfolio-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - pairportfolio-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    command: redis-server --appendonly yes
+
+  # Next.js Application
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    container_name: pairportfolio-app
+    environment:
+      - NODE_ENV=development
+      - DATABASE_URL=postgresql://postgres:postgres123@postgres:5432/pairportfolio
+      - DIRECT_URL=postgresql://postgres:postgres123@postgres:5432/pairportfolio
+      - REDIS_URL=redis://redis:6379
+      - NEXTAUTH_URL=http://localhost:3001
+      - NEXTAUTH_SECRET=your-nextauth-secret-key-development
+      - JWT_SECRET_KEY=your-jwt-secret-key-development
+      - FMP_API_KEY=Ejh2emZcJzogsHafpis8ogaXO7nPZDPI
+    ports:
+      - "3001:3001"
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - /app/.next
+    networks:
+      - pairportfolio-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: npm run dev
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3001/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Production build service (for testing production builds locally)
+  app-prod:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: pairportfolio-app-prod
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://postgres:postgres123@postgres:5432/pairportfolio
+      - DIRECT_URL=postgresql://postgres:postgres123@postgres:5432/pairportfolio
+      - REDIS_URL=redis://redis:6379
+      - NEXTAUTH_URL=http://localhost:3002
+      - NEXTAUTH_SECRET=your-nextauth-secret-key-production
+      - JWT_SECRET_KEY=your-jwt-secret-key-production
+      - FMP_API_KEY=Ejh2emZcJzogsHafpis8ogaXO7nPZDPI
+    ports:
+      - "3002:3000"
+    networks:
+      - pairportfolio-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    profiles: ["production"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  pairportfolio-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local

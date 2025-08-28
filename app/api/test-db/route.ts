@@ -1,10 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { prisma } from '@/lib/db'
 
 export async function GET(request: NextRequest) {
   try {
-    // Test basic imports first
-    const { prisma } = await import('@/lib/db')
-    
     // Test database connection
     const result = await prisma.$queryRaw`SELECT 1 as test`
     
@@ -14,7 +12,7 @@ export async function GET(request: NextRequest) {
       data: result
     })
   } catch (error) {
-    console.error('Database health check error:', error)
+    console.error('Database connection error:', error)
     
     return NextResponse.json({
       success: false,

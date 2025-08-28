@@ -3,7 +3,7 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
+import { signOut, useSession } from 'next-auth/react'
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { NavigationMenu } from '@/components/ui/navigation-menu'
@@ -27,8 +27,8 @@ interface HeaderProps {
 function getInitials(user: any): string {
   if (!user) return 'U'
   
-  // Try to get name from various sources
-  const name = user.user_metadata?.name || user.user_metadata?.full_name || user.user_metadata?.display_name
+  // Try to get name from NextAuth user object
+  const name = user.name
   
   if (name) {
     const parts = name.trim().split(' ')
@@ -48,42 +48,19 @@ function getInitials(user: any): string {
 
 export function Header({ onMenuToggle, isMenuOpen }: HeaderProps) {
   const router = useRouter()
-  const [user, setUser] = React.useState<any>(null)
   const [isUserMenuOpen, setIsUserMenuOpen] = React.useState(false)
   const [isSigningOut, setIsSigningOut] = React.useState(false)
-  const supabase = createClient()
+  const { data: session, status } = useSession()
 
-  React.useEffect(() => {
-    const getUser = async () => {
-      const { data: { user }, error } = await supabase.auth.getUser()
-      console.log('Header: Current user data:', user, 'Error:', error) // Debug log
-      if (error) {
-        console.log('Header: Auth error, clearing user state')
-        setUser(null)
-      } else {
-        setUser(user)
-      }
-    }
-    getUser()
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      console.log('Header: Auth state changed:', { event, user: session?.user }) // Debug log
-      setUser(session?.user ?? null)
-    })
-
-    return () => subscription.unsubscribe()
-  }, [])
+  const user = session?.user
 
   const handleSignOut = async () => {
     try {
       setIsSigningOut(true)
       setIsUserMenuOpen(false) // Close menu immediately
-      await supabase.auth.signOut()
-      router.push('/')
-      router.refresh()
+      await signOut({ callbackUrl: '/' })
     } catch (error) {
       console.error('Sign out error:', error)
-      // Still redirect to home even if sign out fails
       router.push('/')
     } finally {
       setIsSigningOut(false)
@@ -91,10 +68,10 @@ export function Header({ onMenuToggle, isMenuOpen }: HeaderProps) {
   }
 
   return (
-    <header className="border-b bg-background">
+    <header className="fixed top-0 left-0 right-0 z-50 border-b bg-background">
       <div className="flex h-16 items-center px-4">
         {/* Mobile menu button - only show when authenticated */}
-        {user && (
+        {status !== 'loading' && user && (
           <Button
             variant="ghost"
             size="icon"
@@ -114,7 +91,7 @@ export function Header({ onMenuToggle, isMenuOpen }: HeaderProps) {
         </Link>
 
         {/* Main navigation - hidden on mobile and when not authenticated */}
-        {user && (
+        {status !== 'loading' && user && (
           <div className="mx-6 hidden md:flex">
             <NavigationMenu
               items={[
@@ -227,8 +204,13 @@ export function Header({ onMenuToggle, isMenuOpen }: HeaderProps) {
         )}
 
         {/* Right side */}
-        <div className="ml-auto flex items-center space-x-4">
-          {user ? (
+        <div className="ml-auto flex items-center space-x-4" suppressHydrationWarning>
+          {status === 'loading' ? (
+            <div className="flex items-center space-x-2">
+              <div className="h-8 w-16 bg-gray-200 rounded animate-pulse" />
+              <div className="h-8 w-20 bg-gray-200 rounded animate-pulse" />
+            </div>
+          ) : user ? (
             <div className="flex items-center space-x-2">
               <User className="h-4 w-4 text-indigo-600" />
               <Button

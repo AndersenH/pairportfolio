@@ -4,9 +4,10 @@ import type { PortfolioInput } from '@/lib/validations'
 
 const API_BASE = '/api/portfolios'
 
-export function usePortfolios(page = 1, limit = 10) {
+export function usePortfolios(page = 1, limit = 10, enabled = true) {
   return useQuery({
     queryKey: ['portfolios', page, limit],
+    enabled: enabled && page > 0 && limit > 0,
     queryFn: async (): Promise<PaginatedResponse<PortfolioWithHoldings>> => {
       const response = await fetch(`${API_BASE}?page=${page}&limit=${limit}`, {
         credentials: 'include', // Include cookies for authentication

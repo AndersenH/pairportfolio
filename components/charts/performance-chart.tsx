@@ -75,10 +75,20 @@ const formatYAxis = (value: number) => `${((value - 1) * 100).toFixed(0)}%`
 
 const formatXAxis = (value: string, isMobile?: boolean) => {
   const date = new Date(value)
-  return date.toLocaleDateString('en-US', { 
-    month: isMobile ? 'numeric' : 'short',
-    year: '2-digit'
-  })
+  if (isNaN(date.getTime())) return value // Return original if invalid date
+  
+  if (isMobile) {
+    return date.toLocaleDateString('en-US', { 
+      month: 'numeric',
+      year: '2-digit'
+    })
+  } else {
+    return date.toLocaleDateString('en-US', { 
+      month: 'short',
+      day: 'numeric',
+      year: '2-digit'
+    })
+  }
 }
 
 export function PerformanceChart({
@@ -345,9 +355,10 @@ export function PerformanceChart({
             stroke="#64748b"
             fontSize={getResponsiveFontSize()}
             tick={{ fontSize: getResponsiveFontSize() }}
-            interval={isMobile ? 'preserveStartEnd' : 0}
-            tickLine={!isMobile}
-            axisLine={!isMobile}
+            interval={isMobile ? Math.max(Math.floor(combinedData.length / 4), 1) : Math.max(Math.floor(combinedData.length / 8), 1)}
+            tickLine={true}
+            axisLine={true}
+            minTickGap={isMobile ? 30 : 20}
           />
           <YAxis 
             tickFormatter={formatYAxis}

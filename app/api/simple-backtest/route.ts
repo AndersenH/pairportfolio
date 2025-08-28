@@ -79,7 +79,8 @@ export async function POST(request: NextRequest) {
           name: name || 'Simple Portfolio',
           ...fallbackData,
           timeSeries: fallbackTimeSeries, // Add time series for charts
-          assetPerformance: [], // Empty asset performance data for fallback
+          assetPerformance: fallbackData.assetPerformance || [], // Include calculated asset performance
+          assetPrices: fallbackData.assetPrices || {}, // Include asset prices for frontend calculation
           period: { startDate, endDate },
           strategy,
           warning: 'Using fallback calculation due to Python engine unavailability'
@@ -212,6 +213,16 @@ function generateFallbackPortfolio(holdings: any[], startDate: string, endDate: 
   const returns: number[] = []
   const drawdown: number[] = []
   
+  // Generate asset prices for each holding
+  const assetPrices: Record<string, number[]> = {}
+  const assetValues: Record<string, number[]> = {}
+  
+  // Initialize asset prices
+  holdings.forEach(holding => {
+    assetPrices[holding.symbol] = []
+    assetValues[holding.symbol] = []
+  })
+  
   let currentValue = initialCapital
   let peak = initialCapital
   
@@ -228,6 +239,17 @@ function generateFallbackPortfolio(holdings: any[], startDate: string, endDate: 
       
       portfolioValue.push(currentValue)
       returns.push(i === 0 ? 0 : dailyReturn)
+      
+      // Generate individual asset prices with some variance
+      holdings.forEach(holding => {
+        const assetReturn = dailyReturn + (Math.random() - 0.5) * 0.01 // Add some variance
+        const prevPrice = assetPrices[holding.symbol].length > 0 
+          ? assetPrices[holding.symbol][assetPrices[holding.symbol].length - 1]
+          : initialCapital * holding.allocation
+        const newPrice = prevPrice * (1 + assetReturn)
+        assetPrices[holding.symbol].push(newPrice)
+        assetValues[holding.symbol].push(newPrice / (initialCapital * holding.allocation)) // Normalized value
+      })
       
       // Update peak and calculate drawdown
       if (currentValue > peak) {
@@ -246,11 +268,74 @@ function generateFallbackPortfolio(holdings: any[], startDate: string, endDate: 
   const sharpeRatio = volatility > 0 ? (annualizedReturn - 0.02) / volatility : 0
   const maxDrawdown = Math.min(...drawdown)
   
+  // Calculate asset performance metrics
+  const assetPerformance = holdings.map(holding => {
+    const prices = assetPrices[holding.symbol]
+    if (!prices || prices.length < 2) {
+      return {
+        symbol: holding.symbol,
+        totalReturn: 0,
+        annualizedReturn: 0,
+        volatility: 0,
+        sharpeRatio: 0,
+        maxDrawdown: 0,
+        initialWeight: holding.allocation,
+        finalWeight: holding.allocation,
+        avgWeight: holding.allocation,
+        contribution: 0,
+        allocation: holding.allocation
+      }
+    }
+    
+    const assetTotalReturn = (prices[prices.length - 1] - prices[0]) / prices[0]
+    const assetAnnualizedReturn = Math.pow(1 + assetTotalReturn, 365 / days) - 1
+    
+    // Calculate asset returns
+    const assetReturns: number[] = []
+    for (let i = 1; i < prices.length; i++) {
+      assetReturns.push((prices[i] - prices[i-1]) / prices[i-1])
+    }
+    
+    const assetAvgReturn = assetReturns.reduce((sum, r) => sum + r, 0) / assetReturns.length
+    const assetVariance = assetReturns.reduce((sum, r) => sum + Math.pow(r - assetAvgReturn, 2), 0) / assetReturns.length
+    const assetVolatility = Math.sqrt(assetVariance * 252)
+    const assetSharpeRatio = assetVolatility > 0 ? (assetAnnualizedReturn - 0.02) / assetVolatility : 0
+    
+    // Calculate asset drawdown
+    let assetPeak = prices[0]
+    let assetMaxDrawdown = 0
+    for (const price of prices) {
+      if (price > assetPeak) {
+        assetPeak = price
+      }
+      const dd = (assetPeak - price) / assetPeak
+      if (dd > assetMaxDrawdown) {
+        assetMaxDrawdown = dd
+      }
+    }
+    
+    return {
+      symbol: holding.symbol,
+      totalReturn: assetTotalReturn,
+      annualizedReturn: assetAnnualizedReturn,
+      volatility: assetVolatility,
+      sharpeRatio: assetSharpeRatio,
+      maxDrawdown: assetMaxDrawdown,
+      initialWeight: holding.allocation,
+      finalWeight: holding.allocation,
+      avgWeight: holding.allocation,
+      contribution: assetTotalReturn * holding.allocation,
+      allocation: holding.allocation
+    }
+  })
+  
   return {
     portfolioValue,
     dates,
     returns,
     drawdown,
+    assetPrices,
+    assetPerformance,
     holdings: {},
     performanceMetrics: {
       totalReturn,

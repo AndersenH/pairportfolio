@@ -14,6 +14,7 @@ import { PerformanceChart } from '@/components/charts/performance-chart'
 import { AllocationChart } from '@/components/charts/allocation-chart'
 import { AssetPerformanceDemo } from '@/components/performance/asset-performance-demo'
 import { AssetPerformanceTablePython } from '@/components/performance/asset-performance-table-python'
+import { AssetPerformanceSummary } from '@/components/performance/asset-performance-summary'
 import { useMobileResponsive } from '@/lib/client-utils'
 import { BenchmarkSelector } from '@/components/portfolio/portfolio-form'
 import { usePortfolios, useDeletePortfolio } from '@/hooks/use-portfolios'
@@ -92,6 +93,7 @@ interface AssetPerformanceMetrics {
   volatility: number
   sharpeRatio: number
   maxDrawdown: number
+  contribution?: number // Return contribution to portfolio
 }
 
 const popularETFs: PopularETF[] = [
@@ -548,12 +550,43 @@ export default function HomePage() {
   const handlePortfolioClick = (portfolioName: string) => {
     const portfolioDefinition = getPortfolioByName(portfolioName)
     if (portfolioDefinition) {
-      // Navigate to portfolio builder page with portfolio preset in URL
-      const params = new URLSearchParams({
-        preset: portfolioDefinition.id,
-        portfolioName: portfolioDefinition.name
+      // Update portfolio form fields
+      setPortfolioName(portfolioDefinition.name)
+      
+      // Clear existing holdings and populate with new ones
+      const portfolioHoldings = portfolioDefinition.holdings.map(holding => ({
+        symbol: holding.symbol,
+        name: holding.name,
+        allocation: holding.allocation
+      }))
+      setPortfolioItems(portfolioHoldings)
+      
+      // Set date range to last 5 years
+      const defaultDates = getDefaultDates()
+      setStartDate(defaultDates.start)
+      setEndDate(defaultDates.end)
+      
+      // Keep initial investment at $10,000
+      setInitialInvestment(10000)
+      
+      // Clear any existing backtest results
+      setBacktestResult(null)
+      setError(null)
+      
+      // Scroll to Portfolio Builder section smoothly
+      const portfolioBuilderElement = document.getElementById('portfolio-builder')
+      if (portfolioBuilderElement) {
+        portfolioBuilderElement.scrollIntoView({ 
+          behavior: 'smooth',
+          block: 'start'
+        })
+      }
+      
+      // Show success message
+      toast({
+        title: "Portfolio Loaded",
+        description: `${portfolioDefinition.name} has been loaded into the portfolio builder.`,
       })
-      window.location.href = `/portfolio-builder?${params.toString()}`
     }
   }
   const { data: session } = useSession()
@@ -1003,19 +1036,6 @@ export default function HomePage() {
       <div className="container mx-auto px-4 py-6 md:px-6 lg:px-8">
         {/* Market Monitor Section */}
         <div className="mb-8">
-          <div className="flex justify-between items-center mb-4">
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900">ETF Portfolio Analyzer</h1>
-              <p className="text-gray-600 mt-1">Explore top lazy portfolios or create your own</p>
-            </div>
-            <Link 
-              href="/portfolio-builder" 
-              className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
-            >
-              <PieChart className="w-4 h-4" />
-              Portfolio Builder
-            </Link>
-          </div>
           <MarketMonitor onPortfolioClick={handlePortfolioClick} />
         </div>
         
@@ -1787,6 +1807,44 @@ export default function HomePage() {
                 />
               </CardContent>
             </Card>
+
+            {/* Individual Asset Performance Summary */}
+            {assetPerformanceMetrics.length > 0 && (
+              <AssetPerformanceSummary
+                assets={assetPerformanceMetrics.map((metrics, index) => {
+                  const colorIndex = index % CHART_COLORS.length
+                  const portfolioItem = portfolioItems.find(item => item.symbol === metrics.symbol)
+                  return {
+                    symbol: metrics.symbol,
+                    name: portfolioItem?.name,
+                    cagr: metrics.annualizedReturn,
+                    maxDrawdown: metrics.maxDrawdown,
+                    volatility: metrics.volatility,
+                    sharpeRatio: metrics.sharpeRatio,
+                    totalReturn: metrics.totalReturn,
+                    returnContribution: metrics.contribution || 0,
+                    allocation: (portfolioItem?.allocation || 0) / 100,
+                    color: CHART_COLORS[colorIndex]
+                  }
+                })}
+                portfolioMetrics={backtestResult?.performanceMetrics ? {
+                  cagr: backtestResult.performanceMetrics.annualizedReturn || 0,
+                  maxDrawdown: backtestResult.performanceMetrics.maxDrawdown || 0,
+                  volatility: backtestResult.performanceMetrics.volatility || 0,
+                  sharpeRatio: backtestResult.performanceMetrics.sharpeRatio || 0,
+                  totalReturn: backtestResult.performanceMetrics.totalReturn || 0
+                } : backtestResult ? {
+                  cagr: backtestResult.annualizedReturn || 0,
+                  maxDrawdown: backtestResult.maxDrawdown || 0,
+                  volatility: backtestResult.volatility || 0,
+                  sharpeRatio: backtestResult.sharpeRatio || 0,
+                  totalReturn: backtestResult.totalReturn || 0
+                } : undefined}
+                showPortfolioComparison={true}
+                title="Individual Asset Performance"
+                className={isMobile ? 'mt-6' : 'mt-8'}
+              />
+            )}
 
             {/* Portfolio Allocation */}
             <Card className={isMobile ? 'p-4' : 'p-6'}>

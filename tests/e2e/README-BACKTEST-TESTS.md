@@ -95,7 +95,7 @@ This directory contains comprehensive Playwright E2E tests for the backtesting f
 ## Key Features Tested
 
 ### = Complete Flow Testing
-- Dashboard ’ Portfolio selection ’ Custom weights ’ Backtest execution
+- Dashboard ï¿½ Portfolio selection ï¿½ Custom weights ï¿½ Backtest execution
 - Portfolio preselection from dashboard cards
 - Custom allocation editor integration
 
@@ -105,7 +105,7 @@ This directory contains comprehensive Playwright E2E tests for the backtesting f
 - Custom holdings allocation sum (must equal 100%)
 - Portfolio selection requirements
 
-### <¯ Key Feature: Custom Portfolio Weights
+### <ï¿½ Key Feature: Custom Portfolio Weights
 - Toggle functionality to enable custom weights
 - Portfolio allocation editor with edit mode
 - Real-time validation feedback
@@ -120,7 +120,7 @@ This directory contains comprehensive Playwright E2E tests for the backtesting f
 - Error handling and response validation
 
 ### = Authentication & Security
-- Supabase authentication integration
+- NextAuth.js authentication integration
 - User-specific data access
 - Authorization enforcement
 - Session management
@@ -129,8 +129,8 @@ This directory contains comprehensive Playwright E2E tests for the backtesting f
 
 ### Prerequisites
 - Node.js 18+ installed
-- Application running on localhost:3000
-- Supabase authentication configured
+- Application running on localhost:3001 (Docker) or localhost:3000 (local dev)
+- NextAuth.js authentication configured
 - Test user accounts available
 
 ### Commands
@@ -162,15 +162,18 @@ npm run test:e2e:ui
 Ensure these environment variables are configured:
 
 ```bash
-# Supabase Configuration
-NEXT_PUBLIC_SUPABASE_URL=your-supabase-url
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your-supabase-anon-key
+# NextAuth Configuration
+NEXTAUTH_URL=http://localhost:3001
+NEXTAUTH_SECRET=your-nextauth-secret
+
+# Database (PostgreSQL)
+DATABASE_URL=postgresql://postgres:postgres123@localhost:5432/pairportfolio
 
 # Financial Data API (for real market data)
 FMP_API_KEY=Ejh2emZcJzogsHafpis8ogaXO7nPZDPI
 
-# Database
-DATABASE_URL=your-database-url
+# Redis Cache
+REDIS_URL=redis://localhost:6379
 ```
 
 ## Test Data and Fixtures
@@ -258,7 +261,7 @@ Tests generate comprehensive reports:
 
 1. **Real Data Only**: No simulated financial data - all tests use actual market data
 2. **Comprehensive Coverage**: Tests cover happy path, edge cases, and error scenarios  
-3. **Proper Authentication**: Tests use actual Supabase authentication flow
+3. **Proper Authentication**: Tests use actual NextAuth.js authentication flow
 4. **Page Object Model**: Reusable page objects for maintainable tests
 5. **Descriptive Names**: Test names clearly describe the scenario being tested
 6. **Isolation**: Each test is independent with proper setup/teardown

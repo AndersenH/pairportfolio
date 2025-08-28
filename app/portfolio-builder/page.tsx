@@ -14,6 +14,7 @@ import { PerformanceChart } from '@/components/charts/performance-chart'
 import { AllocationChart } from '@/components/charts/allocation-chart'
 import { AssetPerformanceDemo } from '@/components/performance/asset-performance-demo'
 import { AssetPerformanceTablePython } from '@/components/performance/asset-performance-table-python'
+import { AssetPerformanceSummary } from '@/components/performance/asset-performance-summary'
 import { useMobileResponsive } from '@/lib/client-utils'
 import { BenchmarkSelector } from '@/components/portfolio/portfolio-form'
 import { usePortfolios, useDeletePortfolio } from '@/hooks/use-portfolios'
@@ -92,6 +93,7 @@ interface AssetPerformanceMetrics {
   volatility: number
   sharpeRatio: number
   maxDrawdown: number
+  contribution?: number // Return contribution to portfolio
 }
 
 const popularETFs: PopularETF[] = [
@@ -480,12 +482,15 @@ export default function PortfolioBuilderPage() {
   const [benchmarkData, setBenchmarkData] = useState<any[] | null>(null)
   const [isSaving, setIsSaving] = useState(false)
   const [selectedPortfolioId, setSelectedPortfolioId] = useState<string>('')
+  const [autoRunBacktest, setAutoRunBacktest] = useState(false)
   const { toast } = useToast()
 
   // Handle URL parameters for loading preset portfolios
   useEffect(() => {
     const preset = searchParams.get('preset')
     const portfolioNameParam = searchParams.get('portfolioName')
+    
+    console.log('URL params:', { preset, portfolioNameParam })
     
     if (preset || portfolioNameParam) {
       let portfolioDefinition = null
@@ -497,6 +502,8 @@ export default function PortfolioBuilderPage() {
       if (!portfolioDefinition && portfolioNameParam) {
         portfolioDefinition = getPortfolioByName(portfolioNameParam)
       }
+      
+      console.log('Portfolio definition found:', !!portfolioDefinition, portfolioDefinition?.name)
       
       if (portfolioDefinition) {
         // Update portfolio form fields
@@ -520,18 +527,65 @@ export default function PortfolioBuilderPage() {
         setStrategy('buy-hold')
         setBenchmarkSymbol(null)
         
-        // Show toast notification
-        toast({
-          title: 'Portfolio Loaded',
-          description: `Loaded "${portfolioDefinition.name}" template. You can customize it before running the backtest.`,
-          variant: 'default'
-        })
+        // Check if there's a pending backtest result from the lazy portfolio click
+        const pendingResult = sessionStorage.getItem('pendingBacktestResult')
+        console.log('Checking for pending backtest result:', pendingResult ? 'Found' : 'None')
+        if (pendingResult) {
+          try {
+            const backtest = JSON.parse(pendingResult)
+            console.log('Found pending backtest result:', backtest)
+            
+            // Process the backtest result immediately
+            const metrics = backtest.performanceMetrics || backtest
+            setBacktestResult({
+              id: backtest.id,
+              status: backtest.status,
+              finalValue: metrics.totalReturn ? 10000 * (1 + metrics.totalReturn) : undefined,
+              totalReturn: metrics.totalReturn,
+              annualizedReturn: metrics.annualizedReturn,
+              volatility: metrics.volatility,
+              sharpeRatio: metrics.sharpeRatio,
+              maxDrawdown: metrics.maxDrawdown,
+              portfolioValue: backtest.portfolioValue,
+              dates: backtest.dates,
+              holdings: backtest.holdings,
+              returns: backtest.returns,
+              drawdown: backtest.drawdown,
+              performanceMetrics: metrics,
+              assetPerformance: backtest.assetPerformance || [],
+              assetPrices: backtest.assetPrices || null
+            })
+            
+            // Clear the pending result
+            sessionStorage.removeItem('pendingBacktestResult')
+            
+            console.log('Portfolio Builder: Setting backtest result with data:', backtest)
+            toast({
+              title: 'Portfolio Loaded',
+              description: `"${portfolioDefinition.name}" backtest results are now available.`,
+            })
+          } catch (error) {
+            console.error('Error parsing pending backtest result:', error)
+            toast({
+              title: 'Portfolio Loaded',
+              description: `Loaded "${portfolioDefinition.name}" template. You can customize it before running the backtest.`,
+            })
+          }
+        } else {
+          toast({
+            title: 'Portfolio Loaded',
+            description: `Loaded "${portfolioDefinition.name}" template. You can customize it before running the backtest.`,
+          })
+        }
       }
     }
-  }, [searchParams]) // Only run when searchParams change
+  }, [searchParams, toast]) // Only run when searchParams change
+
 
   const { data: session } = useSession()
-  const { data: portfoliosData, isLoading: portfoliosLoading } = usePortfolios(1, 50)
+  // Only fetch portfolios if user is authenticated to avoid auth errors breaking the component
+  const shouldFetchPortfolios = !!session?.user
+  const { data: portfoliosData, isLoading: portfoliosLoading } = usePortfolios(1, 50, shouldFetchPortfolios)
   const deletePortfolio = useDeletePortfolio()
 
   // Handle loading saved portfolio
@@ -775,7 +829,7 @@ export default function PortfolioBuilderPage() {
     }
   }
 
-  const handleRunBacktest = async () => {
+  const handleRunBacktest = React.useCallback(async () => {
     if (portfolioItems.length === 0) {
       toast({
         title: "No Holdings",
@@ -851,7 +905,9 @@ export default function PortfolioBuilderPage() {
         portfolioValueLength: backtest.portfolioValue?.length,
         totalReturn: backtest.performanceMetrics?.totalReturn,
         assetPerformanceLength: backtest.assetPerformance?.length || 0,
-        hasAssetPrices: !!(backtest.assetPrices && Object.keys(backtest.assetPrices).length > 0)
+        hasAssetPrices: !!(backtest.assetPrices && Object.keys(backtest.assetPrices).length > 0),
+        assetPerformancePreview: backtest.assetPerformance ? backtest.assetPerformance.slice(0, 2) : null,
+        assetPricesKeys: backtest.assetPrices ? Object.keys(backtest.assetPrices) : null
       })
 
       // Set results immediately - handle both API response formats
@@ -902,7 +958,7 @@ export default function PortfolioBuilderPage() {
     } finally {
       setIsRunning(false)
     }
-  }
+  }, [portfolioItems, portfolioName, startDate, endDate, initialInvestment, strategy, strategyParameters, benchmarkSymbol, totalAllocation, toast])
 
   const totalAllocation = portfolioItems.reduce((sum, item) => sum + item.allocation, 0)
   
@@ -945,16 +1001,24 @@ export default function PortfolioBuilderPage() {
 
     // If we have pre-calculated asset performance from the API, use it
     if (backtestResult.assetPerformance && backtestResult.assetPerformance.length > 0) {
+      console.log('Using pre-calculated asset performance:', backtestResult.assetPerformance)
       return backtestResult.assetPerformance
     }
 
     // Otherwise calculate from asset prices
     if (backtestResult.assetPrices) {
+      console.log('Calculating from asset prices:', {
+        assetPrices: backtestResult.assetPrices,
+        dates: backtestResult.dates.length
+      })
       return Object.entries(backtestResult.assetPrices).map(([symbol, prices]) => {
-        return calculateAssetPerformanceMetrics(symbol, prices, backtestResult.dates!)
+        const metrics = calculateAssetPerformanceMetrics(symbol, prices, backtestResult.dates!)
+        console.log(`Calculated metrics for ${symbol}:`, metrics)
+        return metrics
       })
     }
 
+    console.log('No asset performance data available')
     return []
   }, [backtestResult])
 
@@ -1489,6 +1553,38 @@ export default function PortfolioBuilderPage() {
                 />
               </CardContent>
             </Card>
+
+            {/* Individual Asset Performance Summary */}
+            {assetPerformanceMetrics.length > 0 && (
+              <AssetPerformanceSummary
+                assets={assetPerformanceMetrics.map((metrics, index) => {
+                  const colorIndex = index % CHART_COLORS.length
+                  const portfolioItem = portfolioItems.find(item => item.symbol === metrics.symbol)
+                  return {
+                    symbol: metrics.symbol,
+                    name: portfolioItem?.name,
+                    cagr: metrics.annualizedReturn,
+                    maxDrawdown: metrics.maxDrawdown,
+                    volatility: metrics.volatility,
+                    sharpeRatio: metrics.sharpeRatio,
+                    totalReturn: metrics.totalReturn,
+                    returnContribution: metrics.contribution || 0,
+                    allocation: (portfolioItem?.allocation || 0) / 100,
+                    color: CHART_COLORS[colorIndex]
+                  }
+                })}
+                portfolioMetrics={backtestResult?.performanceMetrics ? {
+                  cagr: backtestResult.performanceMetrics.annualizedReturn || 0,
+                  maxDrawdown: backtestResult.performanceMetrics.maxDrawdown || 0,
+                  volatility: backtestResult.performanceMetrics.volatility || 0,
+                  sharpeRatio: backtestResult.performanceMetrics.sharpeRatio || 0,
+                  totalReturn: backtestResult.performanceMetrics.totalReturn || 0
+                } : undefined}
+                showPortfolioComparison={true}
+                title="Individual Asset Performance"
+                className={isMobile ? 'mt-6' : 'mt-8'}
+              />
+            )}
 
             {/* Portfolio Allocation */}
             <Card className={isMobile ? 'p-4' : 'p-6'}>

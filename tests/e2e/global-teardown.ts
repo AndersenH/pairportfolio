@@ -1,4 +1,4 @@
-import { createClient } from '@supabase/supabase-js'
+import { PrismaClient } from '@prisma/client'
 
 /**
  * Global Teardown for ETF Portfolio E2E Tests
@@ -9,40 +9,68 @@ import { createClient } from '@supabase/supabase-js'
  * - Generates final test reports
  */
 async function globalTeardown() {
-  console.log('>� Starting ETF Portfolio E2E Test Teardown...')
+  console.log('🧹 Starting ETF Portfolio E2E Test Teardown...')
 
   try {
-    // Initialize Supabase client for cleanup
-    if (process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_KEY) {
-      const supabase = createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL,
-        process.env.SUPABASE_SERVICE_KEY
-      )
+    // Initialize Prisma client for cleanup
+    if (process.env.DATABASE_URL) {
+      const prisma = new PrismaClient({
+        datasources: {
+          db: {
+            url: process.env.DATABASE_URL,
+          },
+        },
+      })
 
       // Clean up test data
       try {
-        // Clean up test portfolios
-        await supabase
-          .from('portfolios')
-          .delete()
-          .ilike('name', '%test%')
+        await prisma.$connect()
 
-        // Clean up test backtests
-        await supabase
-          .from('backtests')
-          .delete()
-          .ilike('name', '%test%')
+        // Clean up test portfolios (cascade delete will handle related backtests)
+        const deletedPortfolios = await prisma.portfolio.deleteMany({
+          where: {
+            name: {
+              contains: 'test',
+              mode: 'insensitive'
+            }
+          }
+        })
 
-        console.log(' Test data cleanup completed')
+        // Clean up test backtests that might not have been cascade deleted
+        const deletedBacktests = await prisma.backtest.deleteMany({
+          where: {
+            name: {
+              contains: 'test',
+              mode: 'insensitive'
+            }
+          }
+        })
+
+        // Clean up test users (cascade delete will handle related data)
+        const deletedUsers = await prisma.user.deleteMany({
+          where: {
+            email: {
+              contains: 'test',
+              mode: 'insensitive'
+            }
+          }
+        })
+
+        console.log(`✅ Test data cleanup completed:`)
+        console.log(`   - Portfolios: ${deletedPortfolios.count}`)
+        console.log(`   - Backtests: ${deletedBacktests.count}`)
+        console.log(`   - Users: ${deletedUsers.count}`)
+
+        await prisma.$disconnect()
       } catch (error) {
-        console.warn('�  Test data cleanup failed:', error)
+        console.warn('⚠️  Test data cleanup failed:', error)
       }
     }
 
-    console.log(' Global teardown completed successfully')
+    console.log('✅ Global teardown completed successfully')
     
   } catch (error) {
-    console.error('L Global teardown failed:', error)
+    console.error('❌ Global teardown failed:', error)
     // Don't throw error in teardown to avoid masking test failures
   }
 }
