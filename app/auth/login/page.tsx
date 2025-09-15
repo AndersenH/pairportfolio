@@ -2,8 +2,8 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { signIn, getSession } from 'next-auth/react'
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
@@ -17,7 +17,6 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const supabase = createClient()
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -25,16 +24,22 @@ export default function LoginPage() {
     setError(null)
 
     try {
-      const { error } = await supabase.auth.signInWithPassword({
+      const result = await signIn('credentials', {
         email,
         password,
+        redirect: false,
       })
 
-      if (error) {
-        setError(error.message)
+      if (result?.error) {
+        setError('Invalid email or password')
       } else {
-        router.push('/dashboard')
-        router.refresh()
+        // Wait for session to update
+        await new Promise(resolve => setTimeout(resolve, 100))
+        const session = await getSession()
+        if (session) {
+          router.push('/')
+          router.refresh()
+        }
       }
     } catch (err) {
       setError('An unexpected error occurred')
@@ -48,15 +53,12 @@ export default function LoginPage() {
     setError(null)
 
     try {
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: {
-          redirectTo: `${window.location.origin}/auth/callback`,
-        },
+      const result = await signIn('google', {
+        callbackUrl: '/',
       })
-
-      if (error) {
-        setError(error.message)
+      
+      if (result?.error) {
+        setError('Google sign-in failed')
       }
     } catch (err) {
       setError('An unexpected error occurred')

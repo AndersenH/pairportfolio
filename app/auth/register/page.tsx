@@ -2,8 +2,8 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { signIn } from 'next-auth/react'
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
@@ -20,7 +20,6 @@ export default function RegisterPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
-  const supabase = createClient()
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -40,24 +39,30 @@ export default function RegisterPage() {
     }
 
     try {
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: {
-            name,
-          },
-          emailRedirectTo: `${window.location.origin}/auth/callback`,
+      // Create user account via API
+      const response = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
         },
+        body: JSON.stringify({ email, password, name }),
       })
 
-      if (error) {
-        setError(error.message)
-      } else if (data?.user) {
+      const data = await response.json()
+
+      if (!response.ok) {
+        setError(data.error || 'Registration failed')
+      } else {
         setSuccess(true)
-        // Auto-login after registration if email confirmation is not required
-        if (data.user.confirmed_at) {
-          router.push('/dashboard')
+        // Auto-login after registration
+        const result = await signIn('credentials', {
+          email,
+          password,
+          redirect: false,
+        })
+        
+        if (!result?.error) {
+          router.push('/')
           router.refresh()
         }
       }
@@ -73,15 +78,12 @@ export default function RegisterPage() {
     setError(null)
 
     try {
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: {
-          redirectTo: `${window.location.origin}/auth/callback`,
-        },
+      const result = await signIn('google', {
+        callbackUrl: '/',
       })
-
-      if (error) {
-        setError(error.message)
+      
+      if (result?.error) {
+        setError('Google sign-up failed')
       }
     } catch (err) {
       setError('An unexpected error occurred')
