@@ -250,3 +250,36 @@ model LazyPortfolioMetrics {
 
   @@index([templateId])
 }
+
+model ScaffoldingField {
+  id          String            @id @default(cuid())
+  name        String            @unique
+  description String?
+  fieldType   String            @default("numeric")
+  isActive    Boolean           @default(true)
+  createdBy   String?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  data        ScaffoldingData[]
+
+  @@index([isActive])
+  @@index([name])
+}
+
+model ScaffoldingData {
+  id          String           @id @default(cuid())
+  fieldId     String
+  symbol      String
+  value       String?
+  numericValue Float?
+  source      String?
+  confidence  String?
+  retrievedAt DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  field       ScaffoldingField @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+
+  @@unique([fieldId, symbol])
+  @@index([fieldId])
+  @@index([symbol])
+  @@index([retrievedAt])
+}
