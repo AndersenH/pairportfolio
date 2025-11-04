@@ -6,21 +6,23 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is a modern Next.js 14 ETF portfolio backtesting application that allows users to create portfolios, run various investment strategies, and analyze historical performance using real market data. The application has been completely migrated from Flask to Next.js with significant enhancements and a professional ETF-Replay style interface.
 
+**Database**: The application uses **SQLite** for lightweight, serverless database storage (no Docker required for development). PostgreSQL can be used for production deployments.
+
 ## Key Development Commands
 
 ### Environment Setup
 
 ```bash
-# Create virtual environment
-python3 -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
+# Install Node.js dependencies
+npm install
 
 # Set up environment variables
-cp .env.example .env  # Create if not exists
-# Edit .env with necessary API keys and database URL
+cp .env.example .env.local
+# Edit .env.local with necessary API keys (FMP_API_KEY, etc.)
+
+# Set up database (SQLite - automatic, no Docker needed)
+npx prisma generate
+npx prisma db push
 ```
 
 ### Running the Application
@@ -54,52 +56,56 @@ coverage html  # Generate HTML report
 ### Database Commands
 
 ```bash
-# Initialize database migrations
-flask db init
+# Generate Prisma client after schema changes
+npx prisma generate
 
-# Create migration after model changes
-flask db migrate -m "Description of changes"
+# Push schema changes to database (development)
+npx prisma db push
 
-# Apply migrations
-flask db upgrade
+# Create and apply migrations (production)
+npx prisma migrate dev --name description_of_changes
 
-# Downgrade database
-flask db downgrade
+# View database in browser
+npx prisma studio
+
+# Reset database (WARNING: deletes all data)
+npx prisma db push --force-reset
 ```
 
 ## Architecture Overview
 
 ### Core Components
 
-1. **Flask Application (app.py)**
-   - Main entry point with API endpoints
-   - Implements rate limiting, caching (Redis), and JWT authentication
-   - Prometheus metrics for monitoring
-   - Two main backtest strategies: buy-hold and momentum
+1. **Next.js Application (app/ directory)**
+   - App Router with React Server Components
+   - API routes in `/app/api`
+   - Server-side rendering and static generation
+   - NextAuth.js for authentication
 
-2. **Data Models (models.py)**
-   - SQLAlchemy models for PostgreSQL/SQLite
-   - Key models: User, Portfolio, PortfolioHolding, Strategy, Backtest, PerformanceMetrics, MarketData, ETFInfo
-   - UUID primary keys for all entities
+2. **Data Models (prisma/schema.prisma)**
+   - Prisma ORM with SQLite (development) or PostgreSQL (production)
+   - Key models: User, Portfolio, PortfolioHolding, Strategy, Backtest, PerformanceMetrics, MarketData, ETFInfo, LazyPortfolioTemplate
+   - CUID primary keys for all entities
    - Proper relationships and constraints
 
-3. **Data Service (data_service.py)**
+3. **Data Service (lib/data/)**
    - Fetches market data from Financial Modeling Prep (FMP) API with Yahoo Finance fallback
    - Implements caching for API efficiency
    - Handles historical and real-time price data
 
-4. **Backtest Engine (backtest_engine.py)**
-   - Vectorized backtesting using pandas/numpy
+4. **Backtest Engine (lib/backtest/)**
+   - Vectorized backtesting using JavaScript/TypeScript
    - Calculates comprehensive performance metrics
-   - Supports async execution (designed for Celery integration)
+   - Async execution with proper error handling
 
 ### API Structure
 
-The application uses Flask blueprints for modular API organization:
-- `/api/auth` - Authentication endpoints
+The application uses Next.js API routes:
+- `/api/auth` - Authentication endpoints (NextAuth.js)
 - `/api/portfolios` - Portfolio management
 - `/api/backtests` - Backtest execution and results
 - `/api/market-data` - Market data endpoints
+- `/api/lazy-portfolios` - Pre-configured portfolio templates
 
 ### Key Features
 
@@ -121,21 +127,29 @@ The application uses Flask blueprints for modular API organization:
 
 ## Environment Variables
 
-Required environment variables in `.env`:
+Required environment variables in `.env.local` (or `.env`):
 
 ```bash
-# Database
-DATABASE_URL=sqlite:///etf_replay.db  # or PostgreSQL URL
+# Database (SQLite - default for development)
+DATABASE_URL="file:./dev.db"
+
+# Alternative: PostgreSQL for production
+# DATABASE_URL="postgresql://user:password@localhost:5432/pairportfolio"
+# DIRECT_URL="postgresql://user:password@localhost:5432/pairportfolio"
+
+# NextAuth.js
+NEXTAUTH_URL="http://localhost:3000"
+NEXTAUTH_SECRET="your-nextauth-secret-key"
 
 # JWT Secret
-JWT_SECRET_KEY=your-secret-key
+JWT_SECRET_KEY="your-jwt-secret-key"
 
-# Redis Cache
-REDIS_URL=redis://localhost:6379
+# Redis Cache (optional for development)
+REDIS_URL="redis://localhost:6379"
 
 # API Keys
-FMP_API_KEY=Ejh2emZcJzogsHafpis8ogaXO7nPZDPI  # Financial Modeling Prep
-ALPHA_VANTAGE_API_KEY=your-key  # Optional fallback
+FMP_API_KEY="Ejh2emZcJzogsHafpis8ogaXO7nPZDPI"  # Financial Modeling Prep
+ALPHA_VANTAGE_API_KEY="your-key"  # Optional fallback
 ```
 
 ## Critical Implementation Notes
@@ -160,23 +174,24 @@ ALPHA_VANTAGE_API_KEY=your-key  # Optional fallback
 ## Development Workflow
 
 1. **Adding New Features**
-   - Update models in `models.py`
-   - Create database migration
-   - Implement service methods
-   - Add API endpoints with proper authentication/validation
+   - Update models in `prisma/schema.prisma`
+   - Run `npx prisma db push` (development) or `npx prisma migrate dev` (production)
+   - Implement service methods in `lib/` directory
+   - Add API endpoints in `app/api/` with proper authentication/validation
    - Write tests for new functionality
 
 2. **Debugging**
-   - Check structured logs (structlog)
-   - Monitor Prometheus metrics at `/metrics`
-   - Use Flask debug mode for development
-   - Check cache behavior with Redis CLI
+   - Check Next.js console logs
+   - Use React DevTools for client-side debugging
+   - Use Prisma Studio (`npx prisma studio`) to inspect database
+   - Check API responses in browser Network tab
 
 3. **Performance Optimization**
-   - Use Flask-Caching for expensive operations
-   - Batch database queries
+   - Use React Server Components for data fetching
+   - Implement proper caching strategies
+   - Batch database queries with Prisma
    - Implement pagination for large datasets
-   - Use vectorized pandas operations in backtesting
+   - Use efficient data structures in backtesting
 
 ## Common Issues and Solutions
 
@@ -186,11 +201,17 @@ ALPHA_VANTAGE_API_KEY=your-key  # Optional fallback
    - Use Yahoo Finance as fallback
 
 2. **Database Performance**
-   - Create indexes on frequently queried columns (symbol, date)
-   - Use database connection pooling
+   - SQLite is single-writer; consider PostgreSQL for production
+   - Indexes already defined in Prisma schema (symbol, date)
+   - Use Prisma's connection pooling for PostgreSQL
    - Consider partitioning market_data table for large datasets
 
 3. **Memory Usage**
    - Stream large datasets instead of loading entirely into memory
    - Clear cache periodically
-   - Use generators for batch processing
+   - Use efficient data structures
+
+4. **SQLite Limitations**
+   - SQLite handles concurrent reads well but only one write at a time
+   - For production with multiple users, switch to PostgreSQL
+   - See `.env.example` for PostgreSQL configuration
