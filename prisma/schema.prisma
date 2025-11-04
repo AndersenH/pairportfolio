@@ -7,6 +7,10 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ==========================================
+// AUTHENTICATION (NextAuth.js - Required)
+// ==========================================
+
 model Account {
   id                String  @id @default(cuid())
   userId            String
@@ -56,22 +60,23 @@ model VerificationToken {
   @@unique([identifier, token])
 }
 
+// ==========================================
+// CORE FEATURES (Minimal schema)
+// ==========================================
+
 model Portfolio {
   id          String             @id @default(cuid())
   name        String
   description String?
   isPublic    Boolean            @default(false)
   userId      String
-  templateId  String?
   createdAt   DateTime           @default(now())
   updatedAt   DateTime           @updatedAt
   backtests   Backtest[]
   user        User               @relation(fields: [userId], references: [id], onDelete: Cascade)
-  template    LazyPortfolioTemplate? @relation(fields: [templateId], references: [id])
   holdings    PortfolioHolding[]
 
   @@index([userId])
-  @@index([templateId])
 }
 
 model PortfolioHolding {
@@ -87,84 +92,60 @@ model PortfolioHolding {
   @@index([symbol])
 }
 
-model BacktestHolding {
-  id         String   @id @default(cuid())
-  backtestId String
-  symbol     String
-  allocation Float
-  name       String?
-  backtest   Backtest @relation(fields: [backtestId], references: [id], onDelete: Cascade)
-
-  @@unique([backtestId, symbol])
-  @@index([backtestId])
-  @@index([symbol])
-}
-
-model Strategy {
-  id          String     @id @default(cuid())
-  name        String     @unique
-  type        String
-  description String
-  isSystem    Boolean    @default(false)
-  parameters  Json?
-  backtests   Backtest[]
-
-  @@index([type])
-  @@index([isSystem])
-}
-
 model Backtest {
-  id                   String              @id @default(cuid())
+  id                   String    @id @default(cuid())
   portfolioId          String
-  strategyId           String
   name                 String?
+  userId               String
+
+  // Backtest configuration
+  strategyType         String    @default("buy-hold")
   startDate            DateTime
   endDate              DateTime
-  initialCapital       Float               @default(10000)
+  initialCapital       Float     @default(10000)
   benchmarkSymbol      String?
-  rebalancingFrequency String              @default("monthly")
-  parameters           Json?
-  status               String              @default("pending")
-  progress             Int?                @default(0)
-  results              Json?
+  rebalancingFrequency String    @default("monthly")
+  parameters           Json?     // Strategy params + portfolio holdings snapshot
+
+  // Execution status
+  status               String    @default("pending")
+  progress             Int?      @default(0)
   errorMessage         String?
   startedAt            DateTime?
   completedAt          DateTime?
-  createdAt            DateTime            @default(now())
-  updatedAt            DateTime            @updatedAt
-  userId               String
-  portfolio            Portfolio           @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
-  strategy             Strategy            @relation(fields: [strategyId], references: [id])
-  user                 User                @relation(fields: [userId], references: [id], onDelete: Cascade)
-  metrics              PerformanceMetrics?
-  holdings             BacktestHolding[]
+
+  // Performance metrics (merged from PerformanceMetrics table)
+  totalReturn          Float?
+  annualizedReturn     Float?
+  volatility           Float?
+  sharpeRatio          Float?
+  maxDrawdown          Float?
+  maxDrawdownDuration  Int?
+  alpha                Float?
+  beta                 Float?
+  calmarRatio          Float?
+  sortinoRatio         Float?
+  var95                Float?
+  cvar95               Float?
+  winRate              Float?
+  profitFactor         Float?
+
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  portfolio            Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+  user                 User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([portfolioId])
   @@index([userId])
   @@index([createdAt])
   @@index([status])
-  @@index([benchmarkSymbol])
+  @@index([strategyType])
 }
 
-model PerformanceMetrics {
-  id                  String   @id @default(cuid())
-  backtestId          String   @unique
-  totalReturn         Float
-  annualizedReturn    Float
-  volatility          Float
-  sharpeRatio         Float?
-  maxDrawdown         Float
-  maxDrawdownDuration Int?
-  alpha               Float?
-  beta                Float?
-  calmarRatio         Float?
-  sortinoRatio        Float?
-  var95               Float?
-  cvar95              Float?
-  winRate             Float?
-  profitFactor        Float?
-  backtest            Backtest @relation(fields: [backtestId], references: [id], onDelete: Cascade)
-}
+// ==========================================
+// MARKET DATA (Caching layer)
+// ==========================================
 
 model MarketData {
   id       String   @id @default(cuid())
@@ -180,73 +161,4 @@ model MarketData {
   @@unique([symbol, date])
   @@index([symbol])
   @@index([date])
-}
-
-model ETFInfo {
-  id           String    @id @default(cuid())
-  symbol       String    @unique
-  name         String
-  description  String?
-  expenseRatio Float?
-  aum          Float?
-  inception    DateTime?
-  category     String?
-  updatedAt    DateTime  @updatedAt
-
-  @@index([symbol])
-  @@index([category])
-}
-
-model LazyPortfolioTemplate {
-  id              String                   @id @default(cuid())
-  name            String                   @unique
-  description     String?
-  creator         String?
-  category        String?
-  riskLevel       String?
-  isActive        Boolean                  @default(true)
-  createdAt       DateTime                 @default(now())
-  updatedAt       DateTime                 @updatedAt
-  holdings        LazyPortfolioHolding[]
-  metrics         LazyPortfolioMetrics?
-  portfolios      Portfolio[]
-
-  @@index([category])
-  @@index([riskLevel])
-  @@index([isActive])
-}
-
-model LazyPortfolioHolding {
-  id         String                @id @default(cuid())
-  templateId String
-  symbol     String
-  allocation Float
-  name       String?
-  assetClass String?
-  template   LazyPortfolioTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
-
-  @@unique([templateId, symbol])
-  @@index([templateId])
-  @@index([symbol])
-  @@index([assetClass])
-}
-
-model LazyPortfolioMetrics {
-  id                  String                @id @default(cuid())
-  templateId          String                @unique
-  totalReturn         Float?
-  annualizedReturn    Float?
-  volatility          Float?
-  sharpeRatio         Float?
-  maxDrawdown         Float?
-  calmarRatio         Float?
-  sortinoRatio        Float?
-  beta                Float?
-  alpha               Float?
-  backtestStartDate   DateTime?
-  backtestEndDate     DateTime?
-  calculatedAt        DateTime              @default(now())
-  template            LazyPortfolioTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
-
-  @@index([templateId])
 }

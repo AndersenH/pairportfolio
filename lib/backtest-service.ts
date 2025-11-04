@@ -3,7 +3,7 @@ import { MarketDataService } from '@/lib/market-data-service'
 
 interface BacktestParams {
   portfolioId: string
-  strategyId: string
+  strategyType: string  // Changed from strategyId
   userId: string
   name?: string
   startDate: string
@@ -79,62 +79,44 @@ export class BacktestService {
       throw new Error('Portfolio not found or access denied')
     }
 
-    // Validate strategy exists
-    const strategy = await prisma.strategy.findUnique({
-      where: { id: params.strategyId },
-    })
-
-    if (!strategy) {
-      throw new Error('Strategy not found')
-    }
-
     // Validate date range
     const startDate = new Date(params.startDate)
     const endDate = new Date(params.endDate)
-    
+
     if (startDate >= endDate) {
       throw new Error('End date must be after start date')
     }
 
     // Determine holdings to use - custom or portfolio default
-    const holdingsToUse = params.customHoldings && params.customHoldings.length > 0 
-      ? params.customHoldings 
-      : portfolio.holdings.map(h => ({ 
-          symbol: h.symbol, 
-          allocation: h.allocation, 
-          name: h.name 
+    const holdingsToUse = params.customHoldings && params.customHoldings.length > 0
+      ? params.customHoldings
+      : portfolio.holdings.map(h => ({
+          symbol: h.symbol,
+          allocation: h.allocation,
+          name: h.name
         }))
 
-    // Create backtest record with holdings in a transaction
-    const backtest = await prisma.$transaction(async (tx) => {
-      // Create the backtest
-      const newBacktest = await tx.backtest.create({
-        data: {
-          userId: params.userId,
-          portfolioId: params.portfolioId,
-          strategyId: params.strategyId,
-          name: params.name || `${portfolio.name} - ${strategy.name}`,
-          startDate: startDate,
-          endDate: endDate,
-          initialCapital: params.initialCapital,
-          benchmarkSymbol: params.benchmarkSymbol,
-          rebalancingFrequency: params.rebalancingFrequency || 'monthly',
-          parameters: params.parameters || {},
-          status: 'pending',
+    // Get strategy display name
+    const strategyName = this.getStrategyDisplayName(params.strategyType)
+
+    // Create backtest record with holdings snapshot in parameters
+    const backtest = await prisma.backtest.create({
+      data: {
+        userId: params.userId,
+        portfolioId: params.portfolioId,
+        strategyType: params.strategyType,
+        name: params.name || `${portfolio.name} - ${strategyName}`,
+        startDate: startDate,
+        endDate: endDate,
+        initialCapital: params.initialCapital,
+        benchmarkSymbol: params.benchmarkSymbol,
+        rebalancingFrequency: params.rebalancingFrequency || 'monthly',
+        parameters: {
+          ...params.parameters,
+          holdings: holdingsToUse  // Store holdings snapshot in JSON
         },
-      })
-
-      // Create backtest holdings
-      await tx.backtestHolding.createMany({
-        data: holdingsToUse.map(holding => ({
-          backtestId: newBacktest.id,
-          symbol: holding.symbol,
-          allocation: holding.allocation,
-          name: holding.name || null,
-        })),
-      })
-
-      return newBacktest
+        status: 'pending',
+      },
     })
 
     // Start backtest execution asynchronously
@@ -144,6 +126,18 @@ export class BacktestService {
     })
 
     return backtest.id
+  }
+
+  private getStrategyDisplayName(strategyType: string): string {
+    const strategyNames: Record<string, string> = {
+      'buy-hold': 'Buy & Hold',
+      'buy_hold': 'Buy & Hold',
+      'momentum': 'Momentum',
+      'relative-strength': 'Relative Strength',
+      'mean-reversion': 'Mean Reversion',
+      'risk-parity': 'Risk Parity',
+    }
+    return strategyNames[strategyType] || strategyType
   }
 
   async getBacktest(backtestId: string, userId: string) {
@@ -158,9 +152,6 @@ export class BacktestService {
             holdings: true,
           },
         },
-        strategy: true,
-        metrics: true,
-        holdings: true,
       },
     })
   }
@@ -184,15 +175,6 @@ export class BacktestService {
               name: true,
             },
           },
-          strategy: {
-            select: {
-              id: true,
-              name: true,
-              type: true,
-            },
-          },
-          metrics: true,
-          holdings: true,
         },
         orderBy: { [sortBy]: sortOrder },
         skip: offset,
@@ -260,8 +242,6 @@ export class BacktestService {
               holdings: true,
             },
           },
-          strategy: true,
-          holdings: true,
         },
       })
 
@@ -269,9 +249,10 @@ export class BacktestService {
         throw new Error('Backtest not found')
       }
 
-      // Get market data for all symbols - use backtest holdings (custom or default)
-      const holdingsToAnalyze = backtest.holdings.length > 0 ? backtest.holdings : backtest.portfolio.holdings
-      const symbols = holdingsToAnalyze.map(h => h.symbol)
+      // Get holdings from parameters JSON (snapshot) or fallback to portfolio holdings
+      const parameters = backtest.parameters as any
+      const holdingsToAnalyze = parameters?.holdings || backtest.portfolio.holdings
+      const symbols = holdingsToAnalyze.map((h: any) => h.symbol)
       const period = this.calculatePeriod(backtest.startDate, backtest.endDate)
       console.log(`Backtest ${backtestId}: Calculated period "${period}" for date range ${backtest.startDate} to ${backtest.endDate}`)
       
@@ -295,11 +276,13 @@ export class BacktestService {
         throw new Error(`No market data available for symbols: ${symbolsWithoutData.join(', ')}. Cannot proceed with backtest.`)
       }
 
-      // Execute backtest based on strategy
+      // Execute backtest based on strategy type
       let result: BacktestResult
-      
-      switch (backtest.strategy.type) {
+
+      const strategyType = backtest.strategyType
+      switch (strategyType) {
         case 'buy_hold':
+        case 'buy-hold':
           console.log(`Executing buy-hold strategy for ${backtestId}`)
           result = await this.executeBuyHoldBacktest(backtest, marketData, holdingsToAnalyze)
           break
@@ -308,7 +291,7 @@ export class BacktestService {
           result = await this.executeMomentumBacktest(backtest, marketData, holdingsToAnalyze)
           break
         default:
-          throw new Error(`Unsupported strategy type: ${backtest.strategy.type}`)
+          throw new Error(`Unsupported strategy type: ${strategyType}`)
       }
 
       console.log(`Strategy execution completed for ${backtestId}. Portfolio has ${result.portfolioValue.length} data points`)
@@ -513,36 +496,28 @@ export class BacktestService {
     result: BacktestResult,
     metrics: PerformanceMetrics
   ): Promise<void> {
-    await prisma.$transaction(async (tx) => {
-      // Update backtest with results
-      await tx.backtest.update({
-        where: { id: backtestId },
-        data: {
-          results: result,
-          completedAt: new Date(),
-        },
-      })
-
-      // Save performance metrics
-      await tx.performanceMetrics.create({
-        data: {
-          backtestId,
-          totalReturn: metrics.totalReturn,
-          annualizedReturn: metrics.annualizedReturn,
-          volatility: metrics.volatility,
-          sharpeRatio: metrics.sharpeRatio,
-          maxDrawdown: metrics.maxDrawdown,
-          maxDrawdownDuration: metrics.maxDrawdownDuration,
-          beta: metrics.beta,
-          alpha: metrics.alpha,
-          calmarRatio: metrics.calmarRatio,
-          sortinoRatio: metrics.sortinoRatio,
-          var95: metrics.var95,
-          cvar95: metrics.cvar95,
-          winRate: metrics.winRate,
-          profitFactor: metrics.profitFactor,
-        },
-      })
+    // Update backtest with results and metrics (merged into single table)
+    await prisma.backtest.update({
+      where: { id: backtestId },
+      data: {
+        results: result,
+        completedAt: new Date(),
+        // Save performance metrics directly on backtest
+        totalReturn: metrics.totalReturn,
+        annualizedReturn: metrics.annualizedReturn,
+        volatility: metrics.volatility,
+        sharpeRatio: metrics.sharpeRatio,
+        maxDrawdown: metrics.maxDrawdown,
+        maxDrawdownDuration: metrics.maxDrawdownDuration,
+        beta: metrics.beta,
+        alpha: metrics.alpha,
+        calmarRatio: metrics.calmarRatio,
+        sortinoRatio: metrics.sortinoRatio,
+        var95: metrics.var95,
+        cvar95: metrics.cvar95,
+        winRate: metrics.winRate,
+        profitFactor: metrics.profitFactor,
+      },
     })
   }
 

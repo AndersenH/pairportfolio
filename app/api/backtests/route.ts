@@ -60,49 +60,20 @@ export const POST = withApiHandler(
     console.log('Backtest POST - Validated data:', validatedData)
 
     try {
-      // Get default strategy if none provided
-      let strategyId = validatedData.strategyId
-      
-      if (!strategyId) {
-        // Create or get default buy-hold strategy
-        const defaultStrategy = await prisma.strategy.findFirst({
-          where: {
-            type: 'buy_hold',
-            isSystem: true,
-          },
-        })
-
-        if (!defaultStrategy) {
-          // Create default strategy
-          const newStrategy = await prisma.strategy.create({
-            data: {
-              name: 'Buy & Hold',
-              type: 'buy_hold',
-              description: 'Simple buy and hold strategy',
-              isSystem: true,
-              parameters: {},
-            },
-          })
-          strategyId = newStrategy.id
-        } else {
-          strategyId = defaultStrategy.id
-        }
-      }
-
       const backtestId = await backtestService.createBacktest({
         ...validatedData,
-        strategyId,
+        strategyType: validatedData.strategyType || 'buy-hold',
         userId: user.id,
         initialCapital: validatedData.initialCapital || 10000,
         benchmarkSymbol: validatedData.benchmarkSymbol || undefined,
         customHoldings: validatedData.customHoldings,
       })
 
-      // Get the created backtest with holdings
+      // Get the created backtest
       const createdBacktest = await backtestService.getBacktest(backtestId, user.id)
 
       const response = createApiResponse(
-        { 
+        {
           id: backtestId,
           status: 'pending',
           message: 'Backtest created and queued for execution',
@@ -113,7 +84,7 @@ export const POST = withApiHandler(
       return NextResponse.json(response, { status: 201 })
     } catch (error) {
       console.error('Create backtest error:', error)
-      
+
       if (error instanceof Error) {
         if (error.message.includes('not found') || error.message.includes('access denied')) {
           return createApiError(

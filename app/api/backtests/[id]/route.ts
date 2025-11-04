@@ -36,22 +36,40 @@ export const GET = withApiHandler(
 
       // Transform the data structure to match what the frontend expects
       let transformedBacktest = { ...backtest }
-      
+
       // If backtest is completed and has results, flatten the structure for the frontend
       if (backtest.status === 'completed' && backtest.results) {
         const results = backtest.results as any
-        
+
+        // Metrics are now direct fields on backtest (merged from PerformanceMetrics table)
+        const metrics = {
+          totalReturn: backtest.totalReturn,
+          annualizedReturn: backtest.annualizedReturn,
+          volatility: backtest.volatility,
+          sharpeRatio: backtest.sharpeRatio,
+          maxDrawdown: backtest.maxDrawdown,
+          maxDrawdownDuration: backtest.maxDrawdownDuration,
+          alpha: backtest.alpha,
+          beta: backtest.beta,
+          calmarRatio: backtest.calmarRatio,
+          sortinoRatio: backtest.sortinoRatio,
+          var95: backtest.var95,
+          cvar95: backtest.cvar95,
+          winRate: backtest.winRate,
+          profitFactor: backtest.profitFactor,
+        }
+
         // Merge the backtest results with metrics for the frontend
         transformedBacktest = {
           ...backtest,
           results: {
             ...results,
             // Include metrics in the results object for BacktestResultsDisplay
-            metrics: backtest.metrics || {},
-            performanceMetrics: backtest.metrics || {}
+            metrics,
+            performanceMetrics: metrics
           }
         }
-        
+
         console.log(`Transformed backtest ${backtestId} results structure for frontend`)
       } else {
         console.log(`Backtest ${backtestId} status: ${backtest.status}, hasResults: ${!!backtest.results}`)
@@ -95,9 +113,7 @@ export const POST = withApiHandler(
             include: {
               holdings: true
             }
-          },
-          holdings: true, // BacktestHolding if custom holdings were used
-          strategy: true
+          }
         }
       })
 
@@ -119,9 +135,11 @@ export const POST = withApiHandler(
         )
       }
 
-      // Determine which holdings to use - custom backtest holdings or original portfolio holdings
-      const holdingsToSave = backtest.holdings.length > 0 
-        ? backtest.holdings.map(h => ({ symbol: h.symbol, allocation: h.allocation, name: h.name }))
+      // Get holdings from parameters (snapshot) or fallback to original portfolio holdings
+      const parameters = backtest.parameters as any
+      const backtestHoldings = parameters?.holdings || []
+      const holdingsToSave = backtestHoldings.length > 0
+        ? backtestHoldings.map((h: any) => ({ symbol: h.symbol, allocation: h.allocation, name: h.name }))
         : backtest.portfolio.holdings.map(h => ({ symbol: h.symbol, allocation: h.allocation, name: h.name }))
 
       // Validate that allocations sum to 1.0 (100%)
@@ -167,14 +185,14 @@ export const POST = withApiHandler(
       if (validatedData.updateEndDateToToday) {
         const today = new Date()
         const todayStr = today.toISOString().split('T')[0] // YYYY-MM-DD format
-        
+
         // Only create new backtest if today is after the original end date
         const originalEndDate = new Date(backtest.endDate)
         if (today > originalEndDate) {
           newBacktest = await prisma.backtest.create({
             data: {
               portfolioId: newPortfolio.id,
-              strategyId: backtest.strategyId,
+              strategyType: backtest.strategyType,
               name: `${validatedData.name} - Updated to ${todayStr}`,
               startDate: backtest.startDate,
               endDate: today,
@@ -190,8 +208,7 @@ export const POST = withApiHandler(
                 include: {
                   holdings: true
                 }
-              },
-              strategy: true
+              }
             }
           })
         }
@@ -203,7 +220,7 @@ export const POST = withApiHandler(
         savedFromBacktest: {
           id: backtest.id,
           name: backtest.name,
-          strategy: backtest.strategy.name,
+          strategy: backtest.strategyType,
           dateRange: {
             start: backtest.startDate,
             end: backtest.endDate
