@@ -35,6 +35,51 @@ The Scaffolding feature allows users to retrieve and store custom financial metr
 
 ## API Endpoints
 
+### POST /api/scaffolding/run/auto
+**NEW** - Automatically run scaffolding with web search (recommended).
+
+This endpoint performs the complete scaffolding process automatically:
+1. Generates queries for all portfolio symbols
+2. Performs web searches (placeholder - integrate with your search provider)
+3. Extracts and parses values
+4. Stores results in database
+
+**Request Body:**
+```json
+{
+  "fieldId": "field-id",
+  "userId": "user-id",
+  "symbols": ["SPY", "QQQ"],
+  "maxSymbols": 50
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "message": "Processed 2 symbols: 1 found, 1 not found",
+    "results": [
+      {
+        "symbol": "SPY",
+        "value": "15.23",
+        "numericValue": 15.23,
+        "confidence": "high",
+        "source": "web_search_auto"
+      }
+    ]
+  },
+  "meta": {
+    "fieldName": "EPS",
+    "totalSymbols": 2,
+    "successCount": 1,
+    "nullCount": 1,
+    "errorCount": 0
+  }
+}
+```
+
 ### POST /api/scaffolding/fields
 Create a new scaffolding field definition.
 
@@ -193,28 +238,55 @@ Get scaffolding data for instruments.
 
 ## Usage via UI
 
+### Quick Start (Recommended)
+
 1. Navigate to `/scaffolding` in the web app
 2. Create a new scaffolding field by entering:
    - Field name (e.g., "EPS")
    - Optional description for better search accuracy
    - Field type (numeric, text, percentage, currency)
 3. Click "Create Field"
-4. Click "Run Scaffolding" on the field
-5. Download the generated queries JSON file
-6. Process queries using the CLI script (see below)
-7. View stored data in your portfolio analysis
+4. Click "Auto Run" on the field
+5. Wait for the automated process to complete
+6. View stored data in your portfolio analysis
+
+### Manual Mode (Advanced)
+
+If you need more control over the search process:
+
+1. Follow steps 1-3 above
+2. Click "Manual" instead of "Auto Run"
+3. Download the generated queries JSON file
+4. Process queries using the CLI script (see below)
+5. Submit results back via API or CLI
+6. View stored data in your portfolio analysis
 
 ## Usage via CLI
 
-### Method 1: Automated Script
+### Method 1: Direct API Call (Recommended)
 
 ```bash
-# Download queries from UI
-# Then run:
+# Call the automated endpoint directly
+curl -X POST http://localhost:3000/api/scaffolding/run/auto \
+  -H "Content-Type: application/json" \
+  -d '{"fieldId": "your-field-id", "maxSymbols": 50}'
+```
+
+### Method 2: Automated CLI with Claude Code
+
+```bash
+# Run from Claude Code environment with WebSearch
+claude run scripts/auto-scaffolding-cli.ts <field-id>
+```
+
+### Method 3: Manual Processing
+
+```bash
+# Download queries from UI, then process manually
 npx tsx scripts/run-scaffolding.ts scaffolding-queries-<field-id>.json
 ```
 
-### Method 2: With Claude Code WebSearch
+### Method 4: With Claude Code WebSearch
 
 See `scripts/run-scaffolding-websearch.md` for detailed instructions.
 

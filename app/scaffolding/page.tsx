@@ -88,6 +88,40 @@ export default function ScaffoldingPage() {
     }
   };
 
+  const handleAutoRunScaffolding = async (fieldId: string) => {
+    try {
+      setToast({
+        type: 'success',
+        message: 'Starting automated scaffolding process...',
+      });
+
+      const response = await fetch('/api/scaffolding/run/auto', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fieldId, maxSymbols: 50 }),
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        const { successCount, nullCount, errorCount } = result.meta;
+        setToast({
+          type: 'success',
+          message: `Scaffolding complete! Found: ${successCount}, Not found: ${nullCount}, Errors: ${errorCount}`,
+        });
+        setTimeout(() => setToast(null), 5000);
+      } else {
+        throw new Error(result.error || 'Failed to run automated scaffolding');
+      }
+    } catch (error) {
+      setToast({
+        type: 'error',
+        message: error instanceof Error ? error.message : 'Failed to run automated scaffolding',
+      });
+      setTimeout(() => setToast(null), 5000);
+    }
+  };
+
   return (
     <div className="container mx-auto py-8 px-4 max-w-6xl">
       {/* Header */}
@@ -140,8 +174,8 @@ export default function ScaffoldingPage() {
                 <h3 className="font-medium">Run Search</h3>
               </div>
               <p className="text-sm text-muted-foreground">
-                AI performs web search for each instrument in your portfolios to find the
-                metric value
+                Click "Auto Run" for automated web search, or "Manual" to download queries
+                and process them with the CLI script
               </p>
             </div>
 
@@ -161,13 +195,13 @@ export default function ScaffoldingPage() {
           <Alert>
             <FileText className="h-4 w-4" />
             <AlertDescription>
-              <strong>Note:</strong> After clicking "Run Scaffolding", you'll download a JSON
-              file with search queries. Use the CLI script{' '}
+              <strong>Two Ways to Run:</strong> (1) Click "Auto Run" for instant automated web
+              search processing. (2) Click "Manual" to download queries and process them with the
+              CLI script{' '}
               <code className="px-1 py-0.5 bg-muted rounded text-xs">
-                scripts/run-scaffolding.ts
+                scripts/auto-scaffolding-cli.ts
               </code>{' '}
-              to process these queries with web search, or manually submit results via the
-              API.
+              for advanced control.
             </AlertDescription>
           </Alert>
         </CardContent>
@@ -177,6 +211,7 @@ export default function ScaffoldingPage() {
       <ScaffoldingForm
         onSubmit={handleCreateField}
         onRunScaffolding={handleRunScaffolding}
+        onAutoRunScaffolding={handleAutoRunScaffolding}
       />
 
       {/* CLI Instructions */}
@@ -184,24 +219,36 @@ export default function ScaffoldingPage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Download className="h-5 w-5" />
-            CLI Processing Instructions
+            Advanced: CLI Processing
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            To process scaffolding queries with web search:
+            For advanced users who want more control over the search process:
           </p>
           <pre className="bg-muted p-4 rounded-lg text-sm overflow-x-auto">
             <code>
-              {`# Using the CLI script
+              {`# Method 1: Automated CLI (with Claude Code WebSearch)
+claude run scripts/auto-scaffolding-cli.ts <fieldId>
+
+# Method 2: Manual processing
+# 1. Click "Manual" to download queries
+# 2. Process with your own search implementation
 npx tsx scripts/run-scaffolding.ts <queries-file.json>
 
-# Or manually with curl
-curl -X POST http://localhost:3000/api/scaffolding/run/result \\
+# Method 3: Direct API call for automated processing
+curl -X POST http://localhost:3000/api/scaffolding/run/auto \\
   -H "Content-Type: application/json" \\
-  -d @results.json`}
+  -d '{"fieldId": "your-field-id", "maxSymbols": 50}'`}
             </code>
           </pre>
+          <Alert>
+            <Info className="h-4 w-4" />
+            <AlertDescription>
+              <strong>Recommended:</strong> Use the "Auto Run" button in the UI for the easiest
+              experience. The CLI methods are for advanced use cases.
+            </AlertDescription>
+          </Alert>
         </CardContent>
       </Card>
     </div>

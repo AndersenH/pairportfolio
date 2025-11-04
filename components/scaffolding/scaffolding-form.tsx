@@ -31,17 +31,20 @@ type ScaffoldingFieldFormData = z.infer<typeof scaffoldingFieldSchema>;
 interface ScaffoldingFormProps {
   onSubmit: (data: ScaffoldingFieldFormData) => Promise<void>;
   onRunScaffolding?: (fieldId: string) => Promise<void>;
+  onAutoRunScaffolding?: (fieldId: string) => Promise<void>;
   isLoading?: boolean;
 }
 
 export function ScaffoldingForm({
   onSubmit,
   onRunScaffolding,
+  onAutoRunScaffolding,
   isLoading = false,
 }: ScaffoldingFormProps) {
   const [fields, setFields] = React.useState<any[]>([]);
   const [isLoadingFields, setIsLoadingFields] = React.useState(false);
   const [isRunning, setIsRunning] = React.useState<string | null>(null);
+  const [isAutoRunning, setIsAutoRunning] = React.useState<string | null>(null);
 
   const form = useForm<ScaffoldingFieldFormData>({
     resolver: zodResolver(scaffoldingFieldSchema),
@@ -85,6 +88,18 @@ export function ScaffoldingForm({
         await onRunScaffolding(fieldId);
       } finally {
         setIsRunning(null);
+      }
+    }
+  };
+
+  const handleAutoRunScaffolding = async (fieldId: string) => {
+    if (onAutoRunScaffolding) {
+      setIsAutoRunning(fieldId);
+      try {
+        await onAutoRunScaffolding(fieldId);
+        await loadFields(); // Reload fields to show updated data counts
+      } finally {
+        setIsAutoRunning(null);
       }
     }
   };
@@ -226,24 +241,48 @@ export function ScaffoldingForm({
                         </span>
                       </div>
                     </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleRunScaffolding(field.id)}
-                      disabled={!field.isActive || isRunning === field.id}
-                    >
-                      {isRunning === field.id ? (
-                        <>
-                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                          Running...
-                        </>
-                      ) : (
-                        <>
-                          <Play className="h-4 w-4 mr-2" />
-                          Run Scaffolding
-                        </>
+                    <div className="flex gap-2">
+                      {onAutoRunScaffolding && (
+                        <Button
+                          variant="default"
+                          size="sm"
+                          onClick={() => handleAutoRunScaffolding(field.id)}
+                          disabled={!field.isActive || isAutoRunning === field.id || isRunning === field.id}
+                        >
+                          {isAutoRunning === field.id ? (
+                            <>
+                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                              Auto Running...
+                            </>
+                          ) : (
+                            <>
+                              <Play className="h-4 w-4 mr-2" />
+                              Auto Run
+                            </>
+                          )}
+                        </Button>
                       )}
-                    </Button>
+                      {onRunScaffolding && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleRunScaffolding(field.id)}
+                          disabled={!field.isActive || isRunning === field.id || isAutoRunning === field.id}
+                        >
+                          {isRunning === field.id ? (
+                            <>
+                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                              Running...
+                            </>
+                          ) : (
+                            <>
+                              <Play className="h-4 w-4 mr-2" />
+                              Manual
+                            </>
+                          )}
+                        </Button>
+                      )}
+                    </div>
                   </div>
                 </div>
               ))}
