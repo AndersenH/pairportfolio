@@ -1,0 +1,234 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ==========================================
+// AUTHENTICATION (NextAuth.js - Keep as is)
+// ==========================================
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model User {
+  id            String      @id @default(cuid())
+  name          String?
+  email         String      @unique
+  emailVerified DateTime?
+  password      String?
+  image         String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  accounts      Account[]
+  backtests     Backtest[]
+  portfolios    Portfolio[]
+  sessions      Session[]
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ==========================================
+// PORTFOLIOS (Simplified)
+// ==========================================
+
+model Portfolio {
+  id          String             @id @default(cuid())
+  name        String
+  description String?
+  isPublic    Boolean            @default(false)
+  userId      String
+  templateId  String?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  backtests   Backtest[]
+  user        User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  template    LazyPortfolioTemplate? @relation(fields: [templateId], references: [id])
+  holdings    PortfolioHolding[]
+
+  @@index([userId])
+  @@index([templateId])
+}
+
+model PortfolioHolding {
+  id          String    @id @default(cuid())
+  portfolioId String
+  symbol      String
+  allocation  Float
+  name        String?
+  portfolio   Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+
+  @@unique([portfolioId, symbol])
+  @@index([portfolioId])
+  @@index([symbol])
+}
+
+// ==========================================
+// BACKTESTS (Simplified - merged metrics)
+// ==========================================
+
+model Backtest {
+  id                   String    @id @default(cuid())
+  portfolioId          String
+  strategyType         String    // Changed from strategyId - now just store type directly
+  name                 String?
+  startDate            DateTime
+  endDate              DateTime
+  initialCapital       Float     @default(10000)
+  benchmarkSymbol      String?
+  rebalancingFrequency String    @default("monthly")
+  parameters           Json?     // Includes strategy params AND portfolio snapshot
+  status               String    @default("pending")
+  progress             Int?      @default(0)
+  errorMessage         String?
+
+  // Merged from PerformanceMetrics
+  totalReturn          Float?
+  annualizedReturn     Float?
+  volatility           Float?
+  sharpeRatio          Float?
+  maxDrawdown          Float?
+  maxDrawdownDuration  Int?
+  alpha                Float?
+  beta                 Float?
+  calmarRatio          Float?
+  sortinoRatio         Float?
+  var95                Float?
+  cvar95               Float?
+  winRate              Float?
+  profitFactor         Float?
+
+  startedAt            DateTime?
+  completedAt          DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  userId               String
+  portfolio            Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+  user                 User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([portfolioId])
+  @@index([userId])
+  @@index([createdAt])
+  @@index([status])
+  @@index([benchmarkSymbol])
+  @@index([strategyType])
+}
+
+// ==========================================
+// MARKET DATA
+// ==========================================
+
+model MarketData {
+  id       String   @id @default(cuid())
+  symbol   String
+  date     DateTime
+  open     Float
+  high     Float
+  low      Float
+  close    Float
+  volume   BigInt?
+  adjClose Float?
+
+  @@unique([symbol, date])
+  @@index([symbol])
+  @@index([date])
+}
+
+model ETFInfo {
+  id           String    @id @default(cuid())
+  symbol       String    @unique
+  name         String
+  description  String?
+  expenseRatio Float?
+  aum          Float?
+  inception    DateTime?
+  category     String?
+  updatedAt    DateTime  @updatedAt
+
+  @@index([symbol])
+  @@index([category])
+}
+
+// ==========================================
+// LAZY PORTFOLIO TEMPLATES (Simplified - merged metrics)
+// ==========================================
+
+model LazyPortfolioTemplate {
+  id               String                   @id @default(cuid())
+  name             String                   @unique
+  description      String?
+  creator          String?
+  category         String?
+  riskLevel        String?
+  isActive         Boolean                  @default(true)
+
+  // Merged from LazyPortfolioMetrics
+  totalReturn      Float?
+  annualizedReturn Float?
+  volatility       Float?
+  sharpeRatio      Float?
+  maxDrawdown      Float?
+  calmarRatio      Float?
+  sortinoRatio     Float?
+  beta             Float?
+  alpha            Float?
+  backtestStartDate DateTime?
+  backtestEndDate   DateTime?
+  metricsCalculatedAt DateTime?
+
+  createdAt        DateTime                 @default(now())
+  updatedAt        DateTime                 @updatedAt
+  holdings         LazyPortfolioHolding[]
+  portfolios       Portfolio[]
+
+  @@index([category])
+  @@index([riskLevel])
+  @@index([isActive])
+}
+
+model LazyPortfolioHolding {
+  id         String                @id @default(cuid())
+  templateId String
+  symbol     String
+  allocation Float
+  name       String?
+  assetClass String?
+  template   LazyPortfolioTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@unique([templateId, symbol])
+  @@index([templateId])
+  @@index([symbol])
+  @@index([assetClass])
+}
