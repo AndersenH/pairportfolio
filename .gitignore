@@ -45,6 +45,14 @@ next-env.d.ts
 # prisma
 /prisma/migrations
 
+# SQLite databases
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+dev.db
+test.db
+
 # IDE
 .vscode/
 .idea/
